@@ -1,0 +1,106 @@
+import datetime
+import decimal
+from typing import List, Optional
+
+from sqlalchemy import String, Date, Numeric, ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class NAVReport(Base):
+    """Aggregate root container for the entire daily report."""
+    __tablename__ = 'nav_reports'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_code: Mapped[str] = mapped_column(String(50), index=True)
+    portfolio_name: Mapped[Optional[str]] = mapped_column(String(255))
+    base_currency: Mapped[Optional[str]] = mapped_column(String(10))
+    report_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    
+    # Relationships
+    groups: Mapped[List["Group"]] = relationship(back_populates="report", cascade="all, delete-orphan")
+    summary_items: Mapped[List["SummaryItem"]] = relationship(back_populates="report", cascade="all, delete-orphan")
+    exchange_rates: Mapped[List["ExchangeRateItem"]] = relationship(back_populates="report", cascade="all, delete-orphan")
+
+
+class Group(Base):
+    """Captures the boldly labeled groups (e.g., 'CASH') aggregating sets of security rows."""
+    __tablename__ = 'nav_groups'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
+    group_label: Mapped[str] = mapped_column(String(100))
+    
+    # Relationships
+    report: Mapped["NAVReport"] = relationship(back_populates="groups")
+    rows: Mapped[List["Row"]] = relationship(back_populates="group", cascade="all, delete-orphan")
+
+
+class Row(Base):
+    """Represents individual security rows within a group."""
+    __tablename__ = 'nav_rows'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey('nav_groups.id'))
+    
+    security_code: Mapped[Optional[str]] = mapped_column(String(100))
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    issue_currency: Mapped[Optional[str]] = mapped_column(String(10))
+    
+    shares_par_prior: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    shares_par_current: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    base_price_prior: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    holdings_price_prior: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    base_price_current: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    holdings_price_current: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    price_percent_change_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    current_book_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    prior_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    current_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    market_value_base_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    earned_income_for_the_period: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    market_value_percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    adjusted_market_value_percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    percent_of_market_value: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    
+    # Relationships
+    group: Mapped["Group"] = relationship(back_populates="rows")
+
+
+class SummaryItem(Base):
+    """Captures individual line items in the NAV summary block."""
+    __tablename__ = 'nav_summary_items'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
+    
+    description: Mapped[str] = mapped_column(String(255))
+    
+    prior_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    current_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    market_value_base_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    market_value_percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    
+    # Relationships
+    report: Mapped["NAVReport"] = relationship(back_populates="summary_items")
+
+
+class ExchangeRateItem(Base):
+    """Captures individual currency pairs from the exchange rates block."""
+    __tablename__ = 'exchange_rate_items'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
+    
+    currency_pair: Mapped[str] = mapped_column(String(50))
+    
+    prior_rate: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    current_rate: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    rate_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
+    
+    # Relationships
+    report: Mapped["NAVReport"] = relationship(back_populates="exchange_rates")
