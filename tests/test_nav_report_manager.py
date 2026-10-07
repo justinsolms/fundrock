@@ -1,12 +1,47 @@
 import tempfile
+import datetime
 import unittest
 from pathlib import Path
 from unittest.mock import call, patch
 
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import Session
+
+from fundrock.nav_report_classes import Base, NAVReport
 from fundrock.nav_report_manager import NAVReportFileManager
 
 
 class NAVReportFileManagerTest(unittest.TestCase):
+    def test_tear_down_drops_database_tables_and_report_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "nav.db"
+            connection_string = f"sqlite:///{database_path}"
+            engine = create_engine(connection_string)
+            Base.metadata.create_all(engine)
+            with Session(engine) as session:
+                session.add(
+                    NAVReport(
+                        portfolio_code="65713",
+                        report_date=datetime.date(2026, 9, 29),
+                    )
+                )
+                session.commit()
+            engine.dispose()
+
+            with (
+                patch("fundrock.nav_report_manager.get_data_path", return_value=directory),
+                patch("fundrock.nav_report_manager.get_var_path", return_value=str(database_path)),
+            ):
+                manager = NAVReportFileManager(connection_string)
+
+            manager.tear_down()
+
+            engine = create_engine(connection_string)
+            try:
+                self.assertEqual(inspect(engine).get_table_names(), [])
+            finally:
+                engine.dispose()
+
     def test_default_database_is_created_under_var_directory(self):
         with (
             patch(

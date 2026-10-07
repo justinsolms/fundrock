@@ -4,6 +4,9 @@ import datetime
 import re
 from pathlib import Path
 
+from sqlalchemy import create_engine
+
+from fundrock.nav_report_classes import Base
 from fundrock.nav_report_parser import ReportParser
 from fundrock.path_utils import get_data_path, get_var_path
 
@@ -27,6 +30,14 @@ class NAVReportFileManager:
             db_connection_string = f"sqlite:///{database_path}"
         self.db_connection_string = db_connection_string
         self.data_path = Path(get_data_path(data_sub_path))
+
+    def tear_down(self) -> None:
+        """Drop all NAV database tables and their stored data."""
+        engine = create_engine(self.db_connection_string)
+        try:
+            Base.metadata.drop_all(engine)
+        finally:
+            engine.dispose()
 
     def find_report_files(self) -> list[Path]:
         """Return matching report files ordered by report date and filename."""

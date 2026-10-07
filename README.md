@@ -30,3 +30,13 @@ supporting `.xlsx`) and processes them in report-date order. Reprocessing a
 portfolio/date replaces its stored snapshot rather than creating a duplicate.
 By default, the SQLite database is created at `var/nav_database.db`; a custom
 database connection string can be passed to `NAVReportFileManager` when needed.
+Header values are read from the cells beside their labels (for example, values
+in column D beside labels in column C). The report date is read from cell C3
+and checked against the date in the filename before the report is stored.
+
+For an explicit clean start during testing, call `tear_down()` before processing.
+This drops every table and all data in the configured database:
+
+```python
+manager.tear_down()
+```

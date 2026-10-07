@@ -1,11 +1,19 @@
 """Parser for NAV reports."""
 
 import datetime
+import re
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 import pandas as pd
 
 from fundrock.nav_report_classes import NAVReport, Group, Row, SummaryItem, ExchangeRateItem
+
+
+_REPORT_FILENAME_DATE = re.compile(
+    r"NAV_[^_]+_(?P<report_date>\d{4}-\d{2}-\d{2})\.xlsx?",
+    re.IGNORECASE,
+)
 
 
 class BaseParser:
@@ -49,28 +57,31 @@ class HeaderParser(BaseParser):
         """
         report_kwargs: Dict[str, Any] = {}
         
-        # Iterating through the first few rows to find key labels
+        # Labels are in column C and their corresponding values in column D.
         for _, row in df_head.iterrows():
-            col1_str = self._to_string(row[1]) or self._to_string(row[2])
-            
-            if not col1_str:
-                continue
-                
-            col1_upper = col1_str.upper()
-            
-            if "AS AT" in col1_upper:
-                # Extracts '29/09/2026' from 'as at 29/09/2026'
-                date_str = col1_str.lower().replace("as at", "").strip()
-                report_kwargs['report_date'] = datetime.datetime.strptime(date_str, "%d/%m/%Y").date()
-                
-            elif "PORTFOLIO CODE:" in col1_upper:
-                report_kwargs['portfolio_code'] = self._to_string(row[2] if pd.notna(row[2]) else row[3])
-                
-            elif "PORTFOLIO NAME:" in col1_upper:
-                report_kwargs['portfolio_name'] = self._to_string(row[2] if pd.notna(row[2]) else row[3])
-                
-            elif "BASE CURRENCY:" in col1_upper:
-                report_kwargs['base_currency'] = self._to_string(row[2] if pd.notna(row[2]) else row[3])
+            for label_column in (1, 2):
+                label = self._to_string(row[label_column])
+                if not label:
+                    continue
+
+                label_upper = label.upper()
+                if "AS AT" in label_upper:
+                    date_str = label.lower().replace("as at", "").strip()
+                    report_kwargs["report_date"] = datetime.datetime.strptime(
+                        date_str, "%d/%m/%Y"
+                    ).date()
+                elif "PORTFOLIO CODE:" in label_upper:
+                    report_kwargs["portfolio_code"] = self._to_string(
+                        row[label_column + 1]
+                    )
+                elif "PORTFOLIO NAME:" in label_upper:
+                    report_kwargs["portfolio_name"] = self._to_string(
+                        row[label_column + 1]
+                    )
+                elif "BASE CURRENCY:" in label_upper:
+                    report_kwargs["base_currency"] = self._to_string(
+                        row[label_column + 1]
+                    )
                 
         return report_kwargs
 
@@ -298,6 +309,20 @@ class ReportParser:
 
         print("Parsing report...")
         report = cls.parse(df)
+
+        filename_match = _REPORT_FILENAME_DATE.fullmatch(Path(file_path).name)
+        if filename_match is None:
+            raise ValueError(
+                f"NAV report filename must include a date in YYYY-MM-DD format: {file_path}"
+            )
+        filename_date = datetime.date.fromisoformat(
+            filename_match.group("report_date")
+        )
+        if report.report_date != filename_date:
+            raise ValueError(
+                f"Report date mismatch for {file_path}: "
+                f"cell C3 has {report.report_date}, filename has {filename_date}"
+            )
 
         with Session() as session:
             existing_reports = session.scalars(
