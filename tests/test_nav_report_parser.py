@@ -1,6 +1,7 @@
 import datetime
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,8 +9,39 @@ import pandas as pd
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from fundrock.nav_report_classes import Base, NAVReport
+from fundrock.nav_report_classes import Base, Group, NAVReport
 from fundrock.nav_report_parser import GroupParser, HeaderParser, ReportParser
+
+
+def _excel_row(
+    label: str | None = None,
+    description: str | None = None,
+    values: dict[int, object] | None = None,
+) -> list[object | None]:
+    row: list[object | None] = [None] * 20
+    if label is not None:
+        row[2] = label
+    if description is not None:
+        row[3] = description
+    if values is not None:
+        for column, value in values.items():
+            row[column] = value
+    return row
+
+
+def _report_dataframe(body_rows: list[list[object | None]]) -> pd.DataFrame:
+    rows = [_excel_row() for _ in range(10)]
+    rows[2][2] = "as at 07/08/2026"
+    rows[5][2] = "Portfolio Code:"
+    rows[5][3] = 65713
+    rows[6][2] = "Portfolio Name:"
+    rows[6][3] = "BALANCED FUND"
+    rows[7][2] = "Base Currency:"
+    rows[7][3] = "ZAR"
+    rows[9][2] = "Security Code"
+    rows.extend(body_rows)
+    rows.append(_excel_row("TOTAL NET ASSETS"))
+    return pd.DataFrame(rows)
 
 
 class HeaderParserTest(unittest.TestCase):
@@ -42,46 +74,243 @@ class HeaderParserTest(unittest.TestCase):
 
 class GroupParserTest(unittest.TestCase):
     def test_parses_holdings_instrument_subgroups_and_regular_groups(self):
-        dataframe_rows: list[list[object | None]] = [
-                [None, None, "CASH", None] + [None] * 16,
-                [None, None, "CASH-001", "Cash holding"] + [None] * 16,
-                [None, None, "CASH TOTAL", None] + [None] * 16,
-                [None, None, "HOLDINGS AT MARKET VALUE", None] + [None] * 16,
-                [None, None, "EQUITIES", None] + [None] * 16,
-                [None, None, "EQ-001", "Equity holding"] + [None] * 16,
-                [None, None, "FUNDS", None] + [None] * 16,
-                [None, None, "FND-001", "Fund holding"] + [None] * 16,
-                [None, None, "ALTERNATIVES", None] + [None] * 16,
-                [None, None, "ALT-001", "Alternative holding"] + [None] * 16,
-                [None, None, "HOLDINGS AT MARKET VALUE TOTAL", None] + [None] * 16,
-                [None, None, "ACCRUED INCOME", None] + [None] * 16,
-                [None, None, "INC-001", "Income item"] + [None] * 16,
-                [None, None, "ACCRUED INCOME TOTAL", None] + [None] * 16,
-        ]
-        dataframe = pd.DataFrame(dataframe_rows)
+        dataframe = pd.DataFrame(
+            [
+                _excel_row("CASH"),
+                _excel_row(
+                    "CASH-001",
+                    "Cash holding",
+                    {12: 1, 13: 10, 14: 12, 15: 2, 19: 25},
+                ),
+                _excel_row(
+                    "CASH TOTAL",
+                    values={12: 1, 13: 10, 14: 12, 15: 2, 19: 0.25},
+                ),
+                _excel_row("HOLDINGS AT MARKET VALUE"),
+                _excel_row("EQUITIES"),
+                _excel_row(
+                    "EQ-001",
+                    "Equity holding",
+                    {12: 2, 13: 100, 14: 90, 15: -10, 19: 30},
+                ),
+                _excel_row("FUNDS"),
+                _excel_row(
+                    "FND-001",
+                    "Fund holding",
+                    {12: 3, 13: 200, 14: 180, 15: -20, 19: 50},
+                ),
+                _excel_row("ALTERNATIVES"),
+                _excel_row(
+                    "ALT-001",
+                    "Alternative holding",
+                    {12: 0, 13: 0, 14: 0, 15: 0, 19: 0},
+                ),
+                _excel_row(
+                    "HOLDINGS AT MARKET VALUE TOTAL",
+                    values={12: 5, 13: 300, 14: 270, 15: -30, 19: 0.8},
+                ),
+                _excel_row("ACCRUED INCOME"),
+                _excel_row(
+                    "INC-001",
+                    "Income item",
+                    {12: 0, 13: 5, 14: 6, 15: 1, 19: 0},
+                ),
+                _excel_row(
+                    "ACCRUED INCOME TOTAL",
+                    values={12: 0, 13: 5, 14: 6, 15: 1, 19: 0},
+                ),
+            ]
+        )
 
         parsed_groups = GroupParser.extract_and_parse_all(dataframe)
 
+        cash, holdings_parent, accrued_income = parsed_groups
+        self.assertEqual(cash["group_label"], "CASH")
+        self.assertIsNone(cash["instrument_type"])
+        self.assertEqual(cash["total_prior_market_value_base"], 10)
+        self.assertEqual(cash["validation_mismatches"], [])
+
+        self.assertEqual(holdings_parent["group_label"], "HOLDINGS AT MARKET VALUE")
+        self.assertNotIn("rows_data", holdings_parent)
+        self.assertEqual(holdings_parent["total_prior_market_value_base"], 300)
+        self.assertEqual(holdings_parent["validation_mismatches"], [])
         self.assertEqual(
             [
                 (
-                    group["group_label"],
-                    group["instrument_type"],
-                    [row["security_code"] for row in group["rows_data"]],
+                    child["group_label"],
+                    child["instrument_type"],
+                    [row["security_code"] for row in child["rows_data"]],
+                    child["validation_mismatches"],
                 )
-                for group in parsed_groups
+                for child in holdings_parent["child_groups"]
             ],
             [
-                ("CASH", None, ["CASH-001"]),
-                ("HOLDINGS AT MARKET VALUE", "EQUITIES", ["EQ-001"]),
-                ("HOLDINGS AT MARKET VALUE", "FUNDS", ["FND-001"]),
-                ("HOLDINGS AT MARKET VALUE", "ALTERNATIVES", ["ALT-001"]),
-                ("ACCRUED INCOME", None, ["INC-001"]),
+                ("HOLDINGS AT MARKET VALUE", "EQUITIES", ["EQ-001"], []),
+                ("HOLDINGS AT MARKET VALUE", "FUNDS", ["FND-001"], []),
+                ("HOLDINGS AT MARKET VALUE", "ALTERNATIVES", ["ALT-001"], []),
+            ],
+        )
+        self.assertEqual(accrued_income["group_label"], "ACCRUED INCOME")
+        self.assertEqual(accrued_income["total_current_market_value_base"], 6)
+        self.assertEqual(accrued_income["validation_mismatches"], [])
+
+    def test_percentage_validation_normalizes_and_allows_display_rounding(self):
+        row = _excel_row("SEC-001", "Security", {19: 0.49})
+        total = _excel_row("TEST TOTAL", values={19: 0.0048})
+
+        parsed_group = GroupParser().parse_group(
+            "TEST", [pd.Series(row)], total_row=pd.Series(total)
+        )
+
+        self.assertEqual(parsed_group["validation_mismatches"], [])
+
+    def test_percentage_validation_reports_difference_outside_rounding_tolerance(self):
+        row = _excel_row("SEC-001", "Security", {19: 0.5})
+        total = _excel_row("TEST TOTAL", values={19: 0.0048})
+
+        parsed_group = GroupParser().parse_group(
+            "TEST", [pd.Series(row)], total_row=pd.Series(total)
+        )
+
+        self.assertEqual(
+            parsed_group["validation_mismatches"],
+            [
+                {
+                    "field": "total_percent_of_market_value",
+                    "expected": Decimal("0.005"),
+                    "actual": Decimal("0.0048"),
+                }
             ],
         )
 
+    def test_skips_validation_when_detail_column_is_entirely_blank(self):
+        parsed_group = GroupParser().parse_group(
+            "TEST",
+            [pd.Series(_excel_row("SEC-001", "Security"))],
+            total_row=pd.Series(_excel_row("TEST TOTAL")),
+        )
+
+        self.assertEqual(parsed_group["validation_mismatches"], [])
+
+    def test_reports_mismatch_when_total_value_is_missing(self):
+        parsed_group = GroupParser().parse_group(
+            "TEST",
+            [pd.Series(_excel_row("SEC-001", "Security", {12: 5}))],
+        )
+
+        self.assertEqual(
+            parsed_group["validation_mismatches"],
+            [
+                {
+                    "field": "total_current_book_value_base",
+                    "expected": 5,
+                    "actual": None,
+                }
+            ],
+        )
+
+    def test_report_parse_builds_holdings_parent_child_relationship(self):
+        dataframe = _report_dataframe(
+            [
+                _excel_row("HOLDINGS AT MARKET VALUE"),
+                _excel_row("EQUITIES"),
+                _excel_row(
+                    "EQ-001",
+                    "Equity",
+                    {12: 1, 13: 10, 14: 9, 15: -1, 19: 50},
+                ),
+                _excel_row(
+                    "HOLDINGS AT MARKET VALUE TOTAL",
+                    values={12: 1, 13: 10, 14: 9, 15: -1, 19: 0.5},
+                ),
+            ]
+        )
+
+        report = ReportParser.parse(dataframe)
+
+        parent = next(
+            group
+            for group in report.groups
+            if group.group_label == "HOLDINGS AT MARKET VALUE"
+            and group.instrument_type is None
+        )
+        child = next(
+            group
+            for group in report.groups
+            if group.instrument_type == "EQUITIES"
+        )
+        self.assertIsNone(parent.parent_group_id)
+        self.assertEqual(parent.total_prior_market_value_base, 10)
+        self.assertIs(child.parent_group, parent)
+        self.assertEqual([row.security_code for row in child.rows], ["EQ-001"])
+
 
 class ReportParserPersistenceTest(unittest.TestCase):
+    def test_group_total_values_keep_report_decimal_precision_in_sqlite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = create_engine(f"sqlite:///{Path(directory) / 'nav.db'}")
+            Base.metadata.create_all(engine)
+            expected = Decimal("234821804.77")
+            with Session(engine) as session:
+                session.add(
+                    NAVReport(
+                        portfolio_code="65713",
+                        report_date=datetime.date(2026, 8, 7),
+                        groups=[
+                            Group(
+                                group_label="CASH",
+                                total_prior_market_value_base=expected,
+                            )
+                        ],
+                    )
+                )
+                session.commit()
+
+            with Session(engine) as session:
+                group = session.scalar(select(Group))
+            engine.dispose()
+
+        self.assertEqual(group.total_prior_market_value_base, expected)
+
+    def test_logs_critical_total_mismatch_and_still_saves_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            connection_string = f"sqlite:///{Path(directory) / 'nav.db'}"
+            dataframe = _report_dataframe(
+                [
+                    _excel_row("CASH"),
+                    _excel_row("CASH-001", "Cash", {12: 2}),
+                    _excel_row("CASH TOTAL", values={12: 1}),
+                ]
+            )
+            with (
+                patch("fundrock.nav_report_parser.pd.read_excel", return_value=dataframe),
+                self.assertLogs("fundrock.nav_report_parser", level="CRITICAL") as logs,
+            ):
+                ReportParser.process_excel_file(
+                    "NAV_65713_2026-08-07.xls",
+                    connection_string,
+                )
+
+            engine = create_engine(connection_string)
+            with Session(engine) as session:
+                report = session.scalar(select(NAVReport))
+                group = session.scalar(select(Group).where(Group.group_label == "CASH"))
+            engine.dispose()
+
+        self.assertIsNotNone(report)
+        self.assertIsNotNone(group)
+        self.assertEqual(group.total_current_book_value_base, 1)
+        self.assertTrue(
+            any(
+                "CRITICAL" in message
+                and "file=NAV_65713_2026-08-07.xls" in message
+                and "group=CASH" in message
+                and "expected=2" in message
+                and "actual=1" in message
+                for message in logs.output
+            )
+        )
+
     def test_reprocessing_a_report_replaces_the_existing_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "nav.db"

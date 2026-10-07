@@ -35,7 +35,15 @@ in column D beside labels in column C). The report date is read from cell C3
 and checked against the date in the filename before the report is stored.
 Rows under `HOLDINGS AT MARKET VALUE` are grouped by their report subheading:
 `group_label` stores the outer heading and `instrument_type` stores values such
-as `EQUITIES` or `FUNDS`. Other groups have no instrument type.
+as `EQUITIES` or `FUNDS`; the outer heading is a rowless parent group holding
+the reported section total.
+
+Each group stores the five values from its `TOTAL` row. The parser checks the
+four monetary totals exactly and checks `percent_of_market_value` after
+normalizing detail percentages to fractions with a display-rounding tolerance.
+Columns with no detail values are skipped. Mismatches are logged at `CRITICAL`
+with the report, group, field, expected value, and actual total; they do not
+prevent the report from being saved.
 
 For an explicit clean start during testing, call `tear_down()` before processing.
 This drops every table and all data in the configured database:

@@ -1,6 +1,7 @@
 """Parser for NAV reports."""
 
 import datetime
+import logging
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -8,6 +9,9 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 
 from fundrock.nav_report_classes import NAVReport, Group, Row, SummaryItem, ExchangeRateItem
+
+
+logger = logging.getLogger(__name__)
 
 
 _REPORT_FILENAME_DATE = re.compile(
@@ -115,9 +119,17 @@ class RowParser(BaseParser):
 
 class GroupParser(BaseBlockParser):
     """Parses a defined group and delegates row parsing to RowParser."""
-    
-    # Explicitly typing the instance variable for strict type checkers
+
     row_parser: RowParser
+
+    _TOTAL_COLUMNS = {
+        "total_current_book_value_base": ("current_book_value_base", 12),
+        "total_prior_market_value_base": ("prior_market_value_base", 13),
+        "total_current_market_value_base": ("current_market_value_base", 14),
+        "total_market_value_base_change": ("market_value_base_change", 15),
+        "total_percent_of_market_value": ("percent_of_market_value", 19),
+    }
+    _PERCENT_TOTAL_FIELD = "total_percent_of_market_value"
     
     def __init__(self) -> None:
         self.row_parser = RowParser()
@@ -135,7 +147,23 @@ class GroupParser(BaseBlockParser):
         current_group_label: Optional[str] = None
         current_instrument_type: Optional[str] = None
         current_group_rows: List[pd.Series] = []
+        holdings_rows: List[pd.Series] = []
+        holdings_children: List[Dict[str, Any]] = []
         in_holdings_section = False
+
+        def finish_holdings_instrument() -> None:
+            nonlocal current_group_rows, current_instrument_type
+            if current_instrument_type is not None:
+                holdings_children.append(
+                    parser_instance.parse_group(
+                        "HOLDINGS AT MARKET VALUE",
+                        current_group_rows,
+                        instrument_type=current_instrument_type,
+                        validate_totals=False,
+                    )
+                )
+            current_group_rows = []
+            current_instrument_type = None
         
         row: pd.Series
         for _, row in body_df.iterrows():
@@ -151,62 +179,72 @@ class GroupParser(BaseBlockParser):
                 current_group_label = col_2_val
                 current_group_rows = []
                 current_instrument_type = None
+                holdings_rows = []
+                holdings_children = []
                 in_holdings_section = True
                 continue
 
             if in_holdings_section:
                 if col_2_upper == "HOLDINGS AT MARKET VALUE TOTAL":
-                    if (
-                        current_group_label is not None
-                        and current_instrument_type
-                        and current_group_rows
-                    ):
-                        all_groups_kwargs.append(
-                            parser_instance.parse_group(
-                                current_group_label,
-                                current_group_rows,
-                                current_instrument_type,
-                            )
-                        )
+                    finish_holdings_instrument()
+                    parent_group = parser_instance.parse_group(
+                        "HOLDINGS AT MARKET VALUE",
+                        holdings_rows,
+                        total_row=row,
+                    )
+                    parent_group.pop("rows_data")
+                    parent_group["child_groups"] = holdings_children
+                    all_groups_kwargs.append(parent_group)
                     current_group_label = None
-                    current_instrument_type = None
                     current_group_rows = []
+                    holdings_rows = []
+                    holdings_children = []
                     in_holdings_section = False
                     continue
 
                 if col_2_val and not col_3_val:
-                    if (
-                        current_group_label is not None
-                        and current_instrument_type
-                        and current_group_rows
-                    ):
-                        all_groups_kwargs.append(
-                            parser_instance.parse_group(
-                                current_group_label,
-                                current_group_rows,
-                                current_instrument_type,
-                            )
-                        )
+                    finish_holdings_instrument()
                     current_instrument_type = col_2_val
-                    current_group_rows = []
                     continue
 
                 if current_instrument_type:
                     current_group_rows.append(row)
+                    holdings_rows.append(row)
                 continue
 
             # Detect Group Start: Col 2 has a label, Col 3 (Security Code) is empty, and it's not a TOTAL row
             if col_2_val and not col_3_val and not col_2_upper.endswith("TOTAL"):
+                if in_holdings_section and current_group_label is not None:
+                    finish_holdings_instrument()
+                    parent_group = parser_instance.parse_group(
+                        "HOLDINGS AT MARKET VALUE",
+                        holdings_rows,
+                    )
+                    parent_group.pop("rows_data")
+                    parent_group["child_groups"] = holdings_children
+                    all_groups_kwargs.append(parent_group)
+                elif current_group_label is not None:
+                    all_groups_kwargs.append(
+                        parser_instance.parse_group(current_group_label, current_group_rows)
+                    )
                 current_group_label = col_2_val
                 current_instrument_type = None
                 current_group_rows = [] # Reset for the new group
                 continue
                 
-            # Detect Group End: Col 2 ends with TOTAL
-            if col_2_val and col_2_upper.endswith("TOTAL") and current_group_label is not None:
+            expected_total_label = (
+                f"{current_group_label} TOTAL".upper()
+                if current_group_label is not None
+                else None
+            )
+            if (
+                col_2_val
+                and expected_total_label == col_2_upper
+                and current_group_label is not None
+            ):
                 # We reached the end of the group, parse the collected slice
                 parsed_group: Dict[str, Any] = parser_instance.parse_group(
-                    current_group_label, current_group_rows
+                    current_group_label, current_group_rows, total_row=row
                 )
                 all_groups_kwargs.append(parsed_group)
                 
@@ -215,10 +253,23 @@ class GroupParser(BaseBlockParser):
                 current_instrument_type = None
                 current_group_rows = []
                 continue
+
+            if col_2_val and col_2_upper.endswith("TOTAL") and current_group_label is not None:
+                all_groups_kwargs.append(
+                    parser_instance.parse_group(current_group_label, current_group_rows)
+                )
+                current_group_label = None
+                current_group_rows = []
+                continue
                 
             # If we are inside a group, collect the data rows
             if current_group_label is not None:
                 current_group_rows.append(row)
+
+        if current_group_label is not None:
+            all_groups_kwargs.append(
+                parser_instance.parse_group(current_group_label, current_group_rows)
+            )
                 
         return all_groups_kwargs
 
@@ -227,20 +278,62 @@ class GroupParser(BaseBlockParser):
         group_label: str,
         rows: List[pd.Series],
         instrument_type: Optional[str] = None,
+        total_row: Optional[pd.Series] = None,
+        validate_totals: bool = True,
     ) -> Dict[str, Any]:
         """Parses the sliced rows for a specific group."""
+        rows_data = [self.row_parser.parse(row) for row in rows]
+        total_values = {
+            total_field: self._to_decimal(total_row[column]) if total_row is not None else None
+            for total_field, (_, column) in self._TOTAL_COLUMNS.items()
+        }
         group_kwargs: Dict[str, Any] = {
             "group_label": group_label.strip(),
             "instrument_type": instrument_type.strip() if instrument_type else None,
-            "rows_data": [] 
+            **total_values,
+            "rows_data": rows_data,
+            "validation_mismatches": (
+                self._validate_totals(rows_data, total_values)
+                if validate_totals
+                else []
+            ),
         }
-        
-        row: pd.Series
-        for row in rows:
-            parsed_row: Dict[str, Any] = self.row_parser.parse(row)
-            group_kwargs["rows_data"].append(parsed_row)
-                
         return group_kwargs
+
+    @classmethod
+    def _validate_totals(
+        cls,
+        rows_data: List[Dict[str, Any]],
+        total_values: Dict[str, Optional[Decimal]],
+    ) -> List[Dict[str, Any]]:
+        mismatches: List[Dict[str, Any]] = []
+        for total_field, (detail_field, _) in cls._TOTAL_COLUMNS.items():
+            detail_values = [
+                row[detail_field]
+                for row in rows_data
+                if row[detail_field] is not None
+            ]
+            if not detail_values:
+                continue
+
+            expected = sum(detail_values, Decimal(0))
+            if total_field == cls._PERCENT_TOTAL_FIELD:
+                expected /= Decimal(100)
+            actual = total_values[total_field]
+            tolerance = (
+                Decimal("0.00005") * (len(detail_values) + 1)
+                if total_field == cls._PERCENT_TOTAL_FIELD
+                else Decimal(0)
+            )
+            if actual is None or abs(expected - actual) > tolerance:
+                mismatches.append(
+                    {
+                        "field": total_field,
+                        "expected": expected,
+                        "actual": actual,
+                    }
+                )
+        return mismatches
     
     
 class NAVSummaryParser(BaseBlockParser):
@@ -329,7 +422,11 @@ class ReportParser:
         return df.iloc[start_idx:end_idx]
 
     @classmethod
-    def parse(cls, df: pd.DataFrame) -> "NAVReport":
+    def parse(
+        cls,
+        df: pd.DataFrame,
+        source_file: str = "<dataframe>",
+    ) -> "NAVReport":
         """Orchestrates the full parsing process and returns a populated NAVReport ORM object."""
         header_kwargs: Dict[str, Any] = HeaderParser().parse(df.head(20))
         report = NAVReport(**header_kwargs)
@@ -338,10 +435,32 @@ class ReportParser:
         parsed_groups_list: List[Dict[str, Any]] = GroupParser.extract_and_parse_all(body_df)
         
         for g_kwargs in parsed_groups_list:
-            rows_data: List[Dict[str, Any]] = g_kwargs.pop("rows_data")
+            child_group_kwargs = g_kwargs.pop("child_groups", [])
+            validation_mismatches = g_kwargs.pop("validation_mismatches", [])
+            rows_data: List[Dict[str, Any]] = g_kwargs.pop("rows_data", [])
             group = Group(**g_kwargs)
             group.rows = [Row(**r_kwargs) for r_kwargs in rows_data]
             report.groups.append(group)
+
+            for mismatch in validation_mismatches:
+                logger.critical(
+                    "NAV group total mismatch: file=%s group=%s instrument_type=%s "
+                    "field=%s expected=%s actual=%s",
+                    source_file,
+                    group.group_label,
+                    group.instrument_type,
+                    mismatch["field"],
+                    mismatch["expected"],
+                    mismatch["actual"],
+                )
+
+            for child_kwargs in child_group_kwargs:
+                child_rows: List[Dict[str, Any]] = child_kwargs.pop("rows_data")
+                child_kwargs.pop("validation_mismatches", None)
+                child_kwargs.pop("child_groups", None)
+                child_group = Group(**child_kwargs, parent_group=group)
+                child_group.rows = [Row(**r_kwargs) for r_kwargs in child_rows]
+                report.groups.append(child_group)
             
         tail_start_idx: int = body_df.index[-1] + 1
         tail_df: pd.DataFrame = df.iloc[tail_start_idx:]
@@ -369,7 +488,7 @@ class ReportParser:
         df = pd.read_excel(file_path, sheet_name=0, header=None)  # type: ignore[reportUnknownMemberType]
 
         print("Parsing report...")
-        report = cls.parse(df)
+        report = cls.parse(df, source_file=file_path)
 
         filename_match = _REPORT_FILENAME_DATE.fullmatch(Path(file_path).name)
         if filename_match is None:

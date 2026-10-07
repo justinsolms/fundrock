@@ -32,19 +32,47 @@ class NAVReport(Base):
 
 
 class Group(Base):
-    """Captures the boldly labeled groups (e.g., 'CASH') aggregating sets of security rows."""
+    """Captures a report group, its detail rows, and reported total values."""
     __tablename__ = 'nav_groups'
     
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
+    parent_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('nav_groups.id')
+    )
     
     # Relationships
     report: Mapped["NAVReport"] = relationship(back_populates="groups")
     rows: Mapped[List["Row"]] = relationship(back_populates="group", cascade="all, delete-orphan")
+    parent_group: Mapped[Optional["Group"]] = relationship(
+        back_populates="child_groups",
+        remote_side="Group.id",
+    )
+    child_groups: Mapped[List["Group"]] = relationship(
+        back_populates="parent_group",
+        cascade="all, delete-orphan",
+    )
 
     # String data
     group_label: Mapped[str] = mapped_column(String(100))
     instrument_type: Mapped[Optional[str]] = mapped_column(String(100))
+
+    # Values read from the group's TOTAL row
+    total_current_book_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(
+        Numeric(precision=24, scale=2)
+    )
+    total_prior_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(
+        Numeric(precision=24, scale=2)
+    )
+    total_current_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(
+        Numeric(precision=24, scale=2)
+    )
+    total_market_value_base_change: Mapped[Optional[decimal.Decimal]] = mapped_column(
+        Numeric(precision=24, scale=2)
+    )
+    total_percent_of_market_value: Mapped[Optional[decimal.Decimal]] = mapped_column(
+        Numeric(precision=12, scale=4)
+    )
 
 
 class Row(Base):
