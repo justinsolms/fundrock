@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from fundrock.nav_report_parser import ReportParser
-from fundrock.path_utils import get_data_path
+from fundrock.path_utils import get_data_path, get_var_path
 
 
 _REPORT_FILENAME = re.compile(
@@ -19,9 +19,12 @@ class NAVReportFileManager:
 
     def __init__(
         self,
-        db_connection_string: str = "sqlite:///nav_database.db",
+        db_connection_string: str | None = None,
         data_sub_path: str = "fundrock/nav_cache",
     ) -> None:
+        if db_connection_string is None:
+            database_path = Path(get_var_path("nav_database.db"))
+            db_connection_string = f"sqlite:///{database_path}"
         self.db_connection_string = db_connection_string
         self.data_path = Path(get_data_path(data_sub_path))
 

@@ -21,10 +21,12 @@ To process every dated NAV Excel report under `$DATA_PATH/fundrock/nav_cache`:
 ```python
 from fundrock.nav_report_manager import NAVReportFileManager
 
-manager = NAVReportFileManager(db_connection_string="sqlite:///nav_database.db")
+manager = NAVReportFileManager()
 manager.process_all_reports()
 ```
 
 The manager discovers files named like `NAV_65713_2026-09-29.xls` (also
 supporting `.xlsx`) and processes them in report-date order. Reprocessing a
 portfolio/date replaces its stored snapshot rather than creating a duplicate.
+By default, the SQLite database is created at `var/nav_database.db`; a custom
+database connection string can be passed to `NAVReportFileManager` when needed.

@@ -7,6 +7,25 @@ from fundrock.nav_report_manager import NAVReportFileManager
 
 
 class NAVReportFileManagerTest(unittest.TestCase):
+    def test_default_database_is_created_under_var_directory(self):
+        with (
+            patch(
+                "fundrock.nav_report_manager.get_var_path",
+                return_value="/project/var/nav_database.db",
+            ) as get_var_path,
+            patch(
+                "fundrock.nav_report_manager.get_data_path",
+                return_value="/data/fundrock/nav_cache",
+            ),
+        ):
+            manager = NAVReportFileManager()
+
+        get_var_path.assert_called_once_with("nav_database.db")
+        self.assertEqual(
+            manager.db_connection_string,
+            "sqlite:////project/var/nav_database.db",
+        )
+
     def test_finds_dated_excel_reports_in_chronological_order(self):
         with tempfile.TemporaryDirectory() as directory:
             data_path = Path(directory)
