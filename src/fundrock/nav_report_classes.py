@@ -15,6 +15,8 @@ class NAVReport(Base):
     __tablename__ = 'nav_reports'
     
     id: Mapped[int] = mapped_column(primary_key=True)
+    
+    # Header strings
     portfolio_code: Mapped[str] = mapped_column(String(50), index=True)
     portfolio_name: Mapped[Optional[str]] = mapped_column(String(255))
     base_currency: Mapped[Optional[str]] = mapped_column(String(10))
@@ -32,11 +34,13 @@ class Group(Base):
     
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
-    group_label: Mapped[str] = mapped_column(String(100))
     
     # Relationships
     report: Mapped["NAVReport"] = relationship(back_populates="groups")
     rows: Mapped[List["Row"]] = relationship(back_populates="group", cascade="all, delete-orphan")
+
+    # String data
+    group_label: Mapped[str] = mapped_column(String(100))
 
 
 class Row(Base):
@@ -46,10 +50,15 @@ class Row(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey('nav_groups.id'))
     
+    # Relationships
+    group: Mapped["Group"] = relationship(back_populates="rows")
+    
+    # String data
     security_code: Mapped[Optional[str]] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(String(255))
     issue_currency: Mapped[Optional[str]] = mapped_column(String(10))
     
+    # Numeric data
     shares_par_prior: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     shares_par_current: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     base_price_prior: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
@@ -65,9 +74,6 @@ class Row(Base):
     market_value_percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     adjusted_market_value_percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     percent_of_market_value: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-    
-    # Relationships
-    group: Mapped["Group"] = relationship(back_populates="rows")
 
 
 class SummaryItem(Base):
@@ -77,15 +83,17 @@ class SummaryItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
     
+    # Relationships
+    report: Mapped["NAVReport"] = relationship(back_populates="summary_items")
+    
+    # String data
     description: Mapped[str] = mapped_column(String(255))
     
+    # Numeric data
     prior_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     current_market_value_base: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     market_value_base_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     market_value_percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-    
-    # Relationships
-    report: Mapped["NAVReport"] = relationship(back_populates="summary_items")
 
 
 class ExchangeRateItem(Base):
@@ -95,12 +103,14 @@ class ExchangeRateItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey('nav_reports.id'))
     
+    # Relationships
+    report: Mapped["NAVReport"] = relationship(back_populates="exchange_rates")
+    
+    # String data
     currency_pair: Mapped[str] = mapped_column(String(50))
     
+    # Numeric data
     prior_rate: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     current_rate: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     rate_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
     percent_change: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-    
-    # Relationships
-    report: Mapped["NAVReport"] = relationship(back_populates="exchange_rates")
