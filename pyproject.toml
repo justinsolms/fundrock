@@ -16,7 +16,8 @@ classifiers = [
 keywords = ["financial", "management", "funds", "investments"]
 dependencies = [
     "setuptools",
-    "sqlalchemy"
+    "sqlalchemy",
+    "pandas",
 ]
 
 [[project.authors]]
