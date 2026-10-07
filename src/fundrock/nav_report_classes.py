@@ -21,9 +21,9 @@ class NAVReport(Base):
     
     # Header strings
     portfolio_code: Mapped[str] = mapped_column(String(50), index=True)
+    report_date: Mapped[datetime.date] = mapped_column(Date, index=True)
     portfolio_name: Mapped[Optional[str]] = mapped_column(String(255))
     base_currency: Mapped[Optional[str]] = mapped_column(String(10))
-    report_date: Mapped[datetime.date] = mapped_column(Date, index=True)
     
     # Relationships
     groups: Mapped[List["Group"]] = relationship(back_populates="report", cascade="all, delete-orphan")
