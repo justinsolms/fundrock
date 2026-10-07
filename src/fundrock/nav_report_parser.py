@@ -220,7 +220,7 @@ class ExchangeRatesParser(BaseBlockParser):
 
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from typing import Optional, Dict, Any, List
 
@@ -300,6 +300,15 @@ class ReportParser:
         report = cls.parse(df)
 
         with Session() as session:
+            existing_reports = session.scalars(
+                select(NAVReport).where(
+                    NAVReport.portfolio_code == report.portfolio_code,
+                    NAVReport.report_date == report.report_date,
+                )
+            ).all()
+            for existing_report in existing_reports:
+                session.delete(existing_report)
+            session.flush()
             session.add(report)
             session.commit()
             print(f"Successfully saved Report for {report.report_date} (ID: {report.id}) to database.")

@@ -12,3 +12,19 @@ python -m unittest discover -s tests
 ```
 
 The package source is in `src/fundrock/`.
+
+NAV reports are stored as a dated series. Each portfolio can have one report per
+date, while different portfolios can have reports for the same date.
+
+To process every dated NAV Excel report under `$DATA_PATH/fundrock/nav_cache`:
+
+```python
+from fundrock.nav_report_manager import NAVReportFileManager
+
+manager = NAVReportFileManager(db_connection_string="sqlite:///nav_database.db")
+manager.process_all_reports()
+```
+
+The manager discovers files named like `NAV_65713_2026-09-29.xls` (also
+supporting `.xlsx`) and processes them in report-date order. Reprocessing a
+portfolio/date replaces its stored snapshot rather than creating a duplicate.

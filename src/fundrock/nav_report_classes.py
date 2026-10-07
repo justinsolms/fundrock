@@ -2,7 +2,7 @@ import datetime
 import decimal
 from typing import List, Optional
 
-from sqlalchemy import String, Date, Numeric, ForeignKey
+from sqlalchemy import String, Date, Numeric, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -11,8 +11,11 @@ class Base(DeclarativeBase):
 
 
 class NAVReport(Base):
-    """Aggregate root container for the entire daily report."""
+    """Aggregate root container for one portfolio's report on a given date."""
     __tablename__ = 'nav_reports'
+    __table_args__ = (
+        UniqueConstraint('portfolio_code', 'report_date', name='uq_nav_report_portfolio_date'),
+    )
     
     id: Mapped[int] = mapped_column(primary_key=True)
     
