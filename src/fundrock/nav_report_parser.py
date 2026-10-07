@@ -133,31 +133,86 @@ class GroupParser(BaseBlockParser):
         
         # Explicit type hints for tracking variables
         current_group_label: Optional[str] = None
+        current_instrument_type: Optional[str] = None
         current_group_rows: List[pd.Series] = []
+        in_holdings_section = False
         
         row: pd.Series
         for _, row in body_df.iterrows():
             col_2_val: Optional[str] = parser_instance._to_string(row[2])
             col_3_val: Optional[str] = parser_instance._to_string(row[3])
+            col_2_upper = col_2_val.upper() if col_2_val else ""
             
             # Skip completely empty rows
             if not col_2_val and not col_3_val:
                 continue
 
-            # Detect Group Start: Col 2 has a label, Col 3 (Security Code) is empty, and it's not a TOTAL row
-            if col_2_val and not col_3_val and not col_2_val.upper().endswith("TOTAL"):
+            if not in_holdings_section and col_2_upper == "HOLDINGS AT MARKET VALUE":
                 current_group_label = col_2_val
+                current_group_rows = []
+                current_instrument_type = None
+                in_holdings_section = True
+                continue
+
+            if in_holdings_section:
+                if col_2_upper == "HOLDINGS AT MARKET VALUE TOTAL":
+                    if (
+                        current_group_label is not None
+                        and current_instrument_type
+                        and current_group_rows
+                    ):
+                        all_groups_kwargs.append(
+                            parser_instance.parse_group(
+                                current_group_label,
+                                current_group_rows,
+                                current_instrument_type,
+                            )
+                        )
+                    current_group_label = None
+                    current_instrument_type = None
+                    current_group_rows = []
+                    in_holdings_section = False
+                    continue
+
+                if col_2_val and not col_3_val:
+                    if (
+                        current_group_label is not None
+                        and current_instrument_type
+                        and current_group_rows
+                    ):
+                        all_groups_kwargs.append(
+                            parser_instance.parse_group(
+                                current_group_label,
+                                current_group_rows,
+                                current_instrument_type,
+                            )
+                        )
+                    current_instrument_type = col_2_val
+                    current_group_rows = []
+                    continue
+
+                if current_instrument_type:
+                    current_group_rows.append(row)
+                continue
+
+            # Detect Group Start: Col 2 has a label, Col 3 (Security Code) is empty, and it's not a TOTAL row
+            if col_2_val and not col_3_val and not col_2_upper.endswith("TOTAL"):
+                current_group_label = col_2_val
+                current_instrument_type = None
                 current_group_rows = [] # Reset for the new group
                 continue
                 
             # Detect Group End: Col 2 ends with TOTAL
-            if col_2_val and col_2_val.upper().endswith("TOTAL") and current_group_label is not None:
+            if col_2_val and col_2_upper.endswith("TOTAL") and current_group_label is not None:
                 # We reached the end of the group, parse the collected slice
-                parsed_group: Dict[str, Any] = parser_instance.parse_group(current_group_label, current_group_rows)
+                parsed_group: Dict[str, Any] = parser_instance.parse_group(
+                    current_group_label, current_group_rows
+                )
                 all_groups_kwargs.append(parsed_group)
                 
                 # Reset tracking variables
                 current_group_label = None
+                current_instrument_type = None
                 current_group_rows = []
                 continue
                 
@@ -167,10 +222,16 @@ class GroupParser(BaseBlockParser):
                 
         return all_groups_kwargs
 
-    def parse_group(self, group_label: str, rows: List[pd.Series]) -> Dict[str, Any]:
+    def parse_group(
+        self,
+        group_label: str,
+        rows: List[pd.Series],
+        instrument_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Parses the sliced rows for a specific group."""
         group_kwargs: Dict[str, Any] = {
             "group_label": group_label.strip(),
+            "instrument_type": instrument_type.strip() if instrument_type else None,
             "rows_data": [] 
         }
         

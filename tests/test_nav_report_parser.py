@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from fundrock.nav_report_classes import Base, NAVReport
-from fundrock.nav_report_parser import HeaderParser, ReportParser
+from fundrock.nav_report_parser import GroupParser, HeaderParser, ReportParser
 
 
 class HeaderParserTest(unittest.TestCase):
@@ -37,6 +37,47 @@ class HeaderParserTest(unittest.TestCase):
                 "portfolio_name": "BALANCED FUND",
                 "base_currency": "ZAR",
             },
+        )
+
+
+class GroupParserTest(unittest.TestCase):
+    def test_parses_holdings_instrument_subgroups_and_regular_groups(self):
+        dataframe_rows: list[list[object | None]] = [
+                [None, None, "CASH", None] + [None] * 16,
+                [None, None, "CASH-001", "Cash holding"] + [None] * 16,
+                [None, None, "CASH TOTAL", None] + [None] * 16,
+                [None, None, "HOLDINGS AT MARKET VALUE", None] + [None] * 16,
+                [None, None, "EQUITIES", None] + [None] * 16,
+                [None, None, "EQ-001", "Equity holding"] + [None] * 16,
+                [None, None, "FUNDS", None] + [None] * 16,
+                [None, None, "FND-001", "Fund holding"] + [None] * 16,
+                [None, None, "ALTERNATIVES", None] + [None] * 16,
+                [None, None, "ALT-001", "Alternative holding"] + [None] * 16,
+                [None, None, "HOLDINGS AT MARKET VALUE TOTAL", None] + [None] * 16,
+                [None, None, "ACCRUED INCOME", None] + [None] * 16,
+                [None, None, "INC-001", "Income item"] + [None] * 16,
+                [None, None, "ACCRUED INCOME TOTAL", None] + [None] * 16,
+        ]
+        dataframe = pd.DataFrame(dataframe_rows)
+
+        parsed_groups = GroupParser.extract_and_parse_all(dataframe)
+
+        self.assertEqual(
+            [
+                (
+                    group["group_label"],
+                    group["instrument_type"],
+                    [row["security_code"] for row in group["rows_data"]],
+                )
+                for group in parsed_groups
+            ],
+            [
+                ("CASH", None, ["CASH-001"]),
+                ("HOLDINGS AT MARKET VALUE", "EQUITIES", ["EQ-001"]),
+                ("HOLDINGS AT MARKET VALUE", "FUNDS", ["FND-001"]),
+                ("HOLDINGS AT MARKET VALUE", "ALTERNATIVES", ["ALT-001"]),
+                ("ACCRUED INCOME", None, ["INC-001"]),
+            ],
         )
 
 

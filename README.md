@@ -33,6 +33,9 @@ database connection string can be passed to `NAVReportFileManager` when needed.
 Header values are read from the cells beside their labels (for example, values
 in column D beside labels in column C). The report date is read from cell C3
 and checked against the date in the filename before the report is stored.
+Rows under `HOLDINGS AT MARKET VALUE` are grouped by their report subheading:
+`group_label` stores the outer heading and `instrument_type` stores values such
+as `EQUITIES` or `FUNDS`. Other groups have no instrument type.
 
 For an explicit clean start during testing, call `tear_down()` before processing.
 This drops every table and all data in the configured database:

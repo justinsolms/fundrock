@@ -44,6 +44,7 @@ class Group(Base):
 
     # String data
     group_label: Mapped[str] = mapped_column(String(100))
+    instrument_type: Mapped[Optional[str]] = mapped_column(String(100))
 
 
 class Row(Base):
