@@ -421,6 +421,7 @@ class NAVSummaryParser(BaseBlockParser):
             description = self._to_string(row[2])
             if not description:
                 continue
+            description = description.split(" - ", maxsplit=1)[0]
 
             summary_items.append({
                 "description": description,
