@@ -246,3 +246,45 @@ class NAVReportFileManagerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WriteNavSummaryCsvTest(unittest.TestCase):
+    def test_writes_time_series_csv_per_portfolio(self):
+        import pandas as pd
+        from fundrock.nav_report_classes import SummaryItem
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
+                manager = NAVReportFileManager(f"sqlite:///{Path(directory) / 'nav.db'}")
+            manager.set_up()
+            engine = create_engine(manager.db_connection_string)
+            with Session(engine) as session:
+                for day, a, b in [(2, 10, 1), (1, 8, 2)]:
+                    session.add(NAVReport(
+                        portfolio_code="P1",
+                        report_date=datetime.date(2026, 1, day),
+                        summary_items=[
+                            SummaryItem(description="Cash", current_market_value_base=a),
+                            SummaryItem(description="Equity", current_market_value_base=b),
+                        ],
+                    ))
+                session.commit()
+            engine.dispose()
+
+            out = Path(directory) / "out"
+            with patch("fundrock.nav_report_manager.get_output_path", return_value=str(out)):
+                out.mkdir()
+                paths = manager.write_nav_summary_csv()
+                with self.assertRaises(ValueError):
+                    manager.write_nav_summary_csv("nope")
+
+            self.assertEqual([p.name for p in paths], ["NAVSummary-P1-2026-01-02.csv"])
+            frame = pd.read_csv(paths[0], index_col=0, parse_dates=True)
+            self.assertIsInstance(frame.index, pd.DatetimeIndex)
+            self.assertEqual(list(frame.columns), ["Cash", "Equity"])
+            self.assertEqual(frame["Cash"].tolist(), [8, 10])
+
+            frames = manager.nav_summary_frames()
+            self.assertEqual(list(frames), ["P1"])
+            self.assertIsInstance(frames["P1"].index, pd.DatetimeIndex)
+            self.assertEqual(frames["P1"]["Equity"].tolist(), [2, 1])

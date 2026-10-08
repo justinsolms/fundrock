@@ -6,13 +6,14 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pandas as pd
 from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from fundrock.nav_report_classes import Base, NAVReport
+from fundrock.nav_report_classes import Base, NAVReport, SummaryItem
 from fundrock.nav_report_parser import ReportParser
-from fundrock.path_utils import get_data_path, get_database_path
+from fundrock.path_utils import get_data_path, get_database_path, get_output_path
 
 logger = logging.getLogger(__name__)
 
@@ -177,3 +178,82 @@ class NAVReportFileManager:
             len(result.failed),
         )
         return result
+
+    def nav_summary_frames(self, portfolio_code: str | None = None) -> dict[str, pd.DataFrame]:
+        """Return each portfolio's NAV Summary time series, keyed by portfolio code.
+
+        Each frame is indexed by a ``DatetimeIndex`` of ``report_date`` with one
+        column per summary ``description`` holding ``current_market_value_base``.
+        All portfolios are returned unless ``portfolio_code`` is given, in which
+        case an unknown code raises ``ValueError``.
+        """
+        if not self.database_exists():
+            message = (
+                f"Database does not exist: {self._database_file()}. "
+                "Create it first with the set_up() method."
+            )
+            logger.error(message)
+            raise FileNotFoundError(message)
+
+        query = (
+            select(
+                NAVReport.portfolio_code,
+                NAVReport.report_date,
+                SummaryItem.description,
+                SummaryItem.current_market_value_base,
+            )
+            .join(SummaryItem, SummaryItem.report_id == NAVReport.id)
+            .order_by(NAVReport.report_date, SummaryItem.id)
+        )
+        if portfolio_code is not None:
+            query = query.where(NAVReport.portfolio_code == portfolio_code)
+
+        engine = create_engine(self.db_connection_string)
+        try:
+            with Session(engine) as session:
+                rows = session.execute(query).tuples().all()
+        finally:
+            engine.dispose()
+
+        if portfolio_code is not None and not rows:
+            raise ValueError(f"No NAV summary data for portfolio: {portfolio_code}")
+
+        data = pd.DataFrame(
+            rows,
+            columns=["portfolio_code", "report_date", "description", "value"],
+        )
+        data["value"] = data["value"].astype(float)
+
+        frames: dict[str, pd.DataFrame] = {}
+        for code, group in data.groupby("portfolio_code"):
+            frame = (
+                group.drop_duplicates(["report_date", "description"])
+                .pivot(index="report_date", columns="description", values="value")
+                .sort_index()
+            )
+            frame.index = pd.DatetimeIndex(frame.index, name="report_date")
+            frame.columns.name = None
+            frames[str(code)] = frame
+        return frames
+
+    def write_nav_summary_csv(
+        self,
+        portfolio_code: str | None = None,
+        sub_path: str | None = None,
+    ) -> list[Path]:
+        """Write each portfolio's NAV Summary time series to a CSV file.
+
+        Uses :meth:`nav_summary_frames`. Files are named
+        ``NAVSummary-<portfolio_code>-<latest report_date>.csv`` and written
+        under ``get_output_path(sub_path)``. Returns the written paths.
+        """
+        frames = self.nav_summary_frames(portfolio_code)
+        output_path = Path(get_output_path(sub_path))
+
+        written: list[Path] = []
+        for code, frame in frames.items():
+            latest = frame.index.max().date().isoformat()
+            file_path = output_path / f"NAVSummary-{code}-{latest}.csv"
+            frame.to_csv(file_path)
+            written.append(file_path)
+        return written

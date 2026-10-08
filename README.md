@@ -87,4 +87,5 @@ fundrock --version | -v     print the version
 fundrock set-up             create a new, empty database (refuses if one exists)
 fundrock tear-down          delete the database; asks you to type "please proceed" (or use --yes)
 fundrock update             add new / modified NAV report files to the database
+fundrock export-summary     write each portfolio's NAV Summary time series to NAVSummary-<code>-<date>.csv (--portfolio, --sub-path)
 ```

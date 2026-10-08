@@ -27,7 +27,7 @@ class CliTest(unittest.TestCase):
         for flag in ("-h", "--help"):
             result = self.runner.invoke(main, [flag])
             self.assertEqual(result.exit_code, 0)
-            for name in ("set-up", "tear-down", "update"):
+            for name in ("set-up", "tear-down", "update", "export-summary"):
                 self.assertIn(name, result.output)
 
     def test_set_up(self):
@@ -66,3 +66,18 @@ class CliTest(unittest.TestCase):
 
         self.manager.update.side_effect = FileNotFoundError("no db")
         self.assertEqual(self.runner.invoke(main, ["update"]).exit_code, 1)
+
+
+class ExportSummaryCliTest(CliTest):
+    def test_export_summary(self):
+        self.manager.write_nav_summary_csv.return_value = [Path("/o/NAVSummary-P1-2026-01-02.csv")]
+        result = self.runner.invoke(main, ["export-summary", "--portfolio", "P1"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("NAVSummary-P1-2026-01-02.csv", result.output)
+        self.manager.write_nav_summary_csv.assert_called_once_with("P1", None)
+
+    def test_export_summary_error(self):
+        self.manager.write_nav_summary_csv.side_effect = ValueError("No NAV summary data")
+        result = self.runner.invoke(main, ["export-summary"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("No NAV summary data", result.output)

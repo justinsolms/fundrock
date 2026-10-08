@@ -64,5 +64,21 @@ def update() -> None:
         raise SystemExit(1)
 
 
+@main.command("export-summary")
+@click.option("--portfolio", "portfolio_code", default=None, help="Only this portfolio code.")
+@click.option("--sub-path", default=None, help="Output sub-directory (no filename).")
+def export_summary(portfolio_code: str | None, sub_path: str | None) -> None:
+    """Export each portfolio's NAV Summary time series to a CSV file."""
+    manager = NAVReportFileManager()
+    try:
+        paths = manager.write_nav_summary_csv(portfolio_code, sub_path)
+    except (FileNotFoundError, ValueError) as error:
+        raise click.ClickException(str(error))
+    if not paths:
+        click.echo("No NAV summary data to export.")
+    for path in paths:
+        click.echo(f"Wrote {path}")
+
+
 if __name__ == "__main__":
     main()
