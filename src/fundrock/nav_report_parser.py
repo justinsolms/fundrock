@@ -381,19 +381,43 @@ class NAVSummaryParser(BaseBlockParser):
     
     def parse_block(self, rows: List[pd.Series]) -> List[Dict[str, Any]]:
         summary_items: List[Dict[str, Any]] = []
-        
-        for row in rows:
+
+        start_index: Optional[int] = None
+        end_index: Optional[int] = None
+        for index, row in enumerate(rows):
             description = self._to_string(row[2])
-            if not description or "Calculated NAV Value" in description:
+            if not description:
                 continue
-                
+
+            marker = description.casefold()
+            if marker == "nav summary":
+                if start_index is not None:
+                    raise ValueError("Found multiple 'NAV Summary' markers.")
+                start_index = index
+            elif marker == "calculated nav value difference":
+                if end_index is not None:
+                    raise ValueError(
+                        "Found multiple 'Calculated NAV Value Difference' markers."
+                    )
+                end_index = index
+
+        if start_index is None or end_index is None or end_index <= start_index:
+            raise ValueError(
+                "Failed to locate ordered 'NAV Summary' and "
+                "'Calculated NAV Value Difference' boundaries."
+            )
+
+        for row in rows[start_index + 1:end_index]:
+            description = self._to_string(row[2])
+            if not description:
+                continue
+
             summary_items.append({
                 "description": description,
-                # Mapping to the specific populated columns in the summary tail
-                "prior_market_value_base": self._to_decimal(row[12]),
-                "current_market_value_base": self._to_decimal(row[13]),
-                "market_value_base_change": self._to_decimal(row[14]),
-                "market_value_percent_change": self._to_decimal(row[16]),
+                "prior_market_value_base": self._to_decimal(row[13]),
+                "current_market_value_base": self._to_decimal(row[14]),
+                "market_value_base_change": self._to_decimal(row[15]),
+                "market_value_percent_change": self._to_decimal(row[17]),
             })
             
         return summary_items

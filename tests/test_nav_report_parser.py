@@ -9,8 +9,13 @@ import pandas as pd
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from fundrock.nav_report_classes import Base, Group, NAVReport
-from fundrock.nav_report_parser import GroupParser, HeaderParser, ReportParser
+from fundrock.nav_report_classes import Base, Group, NAVReport, SummaryItem
+from fundrock.nav_report_parser import (
+    GroupParser,
+    HeaderParser,
+    NAVSummaryParser,
+    ReportParser,
+)
 
 
 def _excel_row(
@@ -32,6 +37,7 @@ def _excel_row(
 def _report_dataframe(
     body_rows: list[list[object | None]],
     total_net_assets_values: dict[int, object] | None = None,
+    summary_rows: list[list[object | None]] | None = None,
 ) -> pd.DataFrame:
     rows = [_excel_row() for _ in range(10)]
     rows[2][2] = "as at 07/08/2026"
@@ -44,6 +50,9 @@ def _report_dataframe(
     rows[9][2] = "Security Code"
     rows.extend(body_rows)
     rows.append(_excel_row("TOTAL NET ASSETS", values=total_net_assets_values))
+    rows.append(_excel_row("NAV Summary"))
+    rows.extend(summary_rows or [])
+    rows.append(_excel_row("Calculated NAV Value Difference"))
     return pd.DataFrame(rows)
 
 
@@ -72,6 +81,93 @@ class HeaderParserTest(unittest.TestCase):
                 "portfolio_name": "BALANCED FUND",
                 "base_currency": "ZAR",
             },
+        )
+
+
+class NAVSummaryParserTest(unittest.TestCase):
+    def test_parses_variable_summary_lines_in_input_order_and_stops_at_end_marker(self):
+        rows = [
+            _excel_row("TOTAL NET ASSETS", values={13: 100}),
+            _excel_row("NAV Summary"),
+            _excel_row("BASE CURRENCY"),
+            _excel_row(
+                "NET INCOME",
+                values={13: -10, 14: -12, 15: -2, 17: -0.1},
+            ),
+            _excel_row(
+                "TOTAL CLASS SHARES IN ISSUE",
+                values={13: 20, 14: 22, 15: 2},
+            ),
+            _excel_row("Calculated NAV Value Difference", values={13: 0}),
+            _excel_row("EXCHANGE RATES"),
+            _excel_row("ZAR:USD", values={13: 0.06, 14: 0.07, 15: 0.01, 17: 0.1}),
+        ]
+
+        parsed_items = NAVSummaryParser().parse_block(
+            [pd.Series(row) for row in rows]
+        )
+
+        self.assertEqual(
+            parsed_items,
+            [
+                {
+                    "description": "BASE CURRENCY",
+                    "prior_market_value_base": None,
+                    "current_market_value_base": None,
+                    "market_value_base_change": None,
+                    "market_value_percent_change": None,
+                },
+                {
+                    "description": "NET INCOME",
+                    "prior_market_value_base": Decimal("-10"),
+                    "current_market_value_base": Decimal("-12"),
+                    "market_value_base_change": Decimal("-2"),
+                    "market_value_percent_change": Decimal("-0.1"),
+                },
+                {
+                    "description": "TOTAL CLASS SHARES IN ISSUE",
+                    "prior_market_value_base": Decimal("20"),
+                    "current_market_value_base": Decimal("22"),
+                    "market_value_base_change": Decimal("2"),
+                    "market_value_percent_change": None,
+                },
+            ],
+        )
+
+    def test_requires_ordered_summary_boundaries(self):
+        with self.assertRaisesRegex(ValueError, "ordered 'NAV Summary'"):
+            NAVSummaryParser().parse_block(
+                [pd.Series(_excel_row("NET INCOME"))]
+            )
+
+    def test_report_parser_creates_summary_item_instances_for_variable_rows(self):
+        dataframe = _report_dataframe(
+            [_excel_row("CASH"), _excel_row("CASH TOTAL")],
+            summary_rows=[
+                _excel_row(
+                    "NET INCOME",
+                    values={13: -10, 14: -12, 15: -2, 17: -0.1},
+                ),
+                _excel_row(
+                    "CAPITAL VALUE",
+                    values={13: 20, 14: 22, 15: 2, 17: 0.1},
+                ),
+            ],
+        )
+
+        report = ReportParser.parse(dataframe)
+
+        self.assertEqual(
+            [item.description for item in report.summary_items],
+            ["NET INCOME", "CAPITAL VALUE"],
+        )
+        self.assertTrue(all(type(item) is SummaryItem for item in report.summary_items))
+        self.assertEqual(report.summary_items[0].prior_market_value_base, Decimal("-10"))
+        self.assertEqual(report.summary_items[0].current_market_value_base, Decimal("-12"))
+        self.assertEqual(report.summary_items[0].market_value_base_change, Decimal("-2"))
+        self.assertEqual(
+            report.summary_items[0].market_value_percent_change,
+            Decimal("-0.1"),
         )
 
 
