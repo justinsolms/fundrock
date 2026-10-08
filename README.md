@@ -74,3 +74,15 @@ added; files modified since they were stored replace their report; the rest are
 skipped. A failing file is logged at `ERROR` and returned in `failed` (retried on
 the next update). It returns an `UpdateResult` with `added`, `updated`,
 `unchanged` and `failed` file lists. Reports whose files were removed are kept.
+
+## Command line
+
+Installing the package provides the `fundrock` command (also `python -m fundrock`):
+
+```
+fundrock --help | -h        show help
+fundrock --version | -v     print the version
+fundrock set-up             create a new, empty database (refuses if one exists)
+fundrock tear-down          delete the database; asks you to type "please proceed" (or use --yes)
+fundrock update             add new / modified NAV report files to the database
+```

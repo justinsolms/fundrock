@@ -20,7 +20,11 @@ dependencies = [
     "pandas",
     "xlrd",
     "pyyaml",
+    "click",
 ]
+
+[project.scripts]
+fundrock = "fundrock.__main__:main"
 
 [[project.authors]]
 name = "Justin Solms"
