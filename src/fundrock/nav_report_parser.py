@@ -383,6 +383,7 @@ class NAVSummaryParser(BaseBlockParser):
         summary_items: List[Dict[str, Any]] = []
 
         start_index: Optional[int] = None
+        base_currency_index: Optional[int] = None
         end_index: Optional[int] = None
         for index, row in enumerate(rows):
             description = self._to_string(row[2])
@@ -394,6 +395,10 @@ class NAVSummaryParser(BaseBlockParser):
                 if start_index is not None:
                     raise ValueError("Found multiple 'NAV Summary' markers.")
                 start_index = index
+            elif marker == "base currency":
+                if base_currency_index is not None:
+                    raise ValueError("Found multiple 'BASE CURRENCY' markers.")
+                base_currency_index = index
             elif marker == "calculated nav value difference":
                 if end_index is not None:
                     raise ValueError(
@@ -401,13 +406,18 @@ class NAVSummaryParser(BaseBlockParser):
                     )
                 end_index = index
 
-        if start_index is None or end_index is None or end_index <= start_index:
+        if (
+            start_index is None
+            or base_currency_index is None
+            or end_index is None
+            or not start_index < base_currency_index < end_index
+        ):
             raise ValueError(
-                "Failed to locate ordered 'NAV Summary' and "
-                "'Calculated NAV Value Difference' boundaries."
+                "Failed to locate ordered 'NAV Summary', 'BASE CURRENCY', "
+                "and 'Calculated NAV Value Difference' boundaries."
             )
 
-        for row in rows[start_index + 1:end_index]:
+        for row in rows[base_currency_index + 1:end_index]:
             description = self._to_string(row[2])
             if not description:
                 continue

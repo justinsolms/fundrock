@@ -44,6 +44,8 @@ normalizing detail percentages to fractions with a display-rounding tolerance.
 Columns with no detail values are skipped. Mismatches are logged at `CRITICAL`
 with the report, group, field, expected value, and actual total; they do not
 prevent the report from being saved.
+Summary items are read from the rows after `BASE CURRENCY` and before
+`Calculated NAV Value Difference`; these headings are not stored as items.
 
 The database lifecycle is explicit. `set_up()` creates a brand-new database with
 all tables. If the database already exists it logs an `ERROR` and raises

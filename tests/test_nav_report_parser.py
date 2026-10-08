@@ -51,6 +51,7 @@ def _report_dataframe(
     rows.extend(body_rows)
     rows.append(_excel_row("TOTAL NET ASSETS", values=total_net_assets_values))
     rows.append(_excel_row("NAV Summary"))
+    rows.append(_excel_row("BASE CURRENCY"))
     rows.extend(summary_rows or [])
     rows.append(_excel_row("Calculated NAV Value Difference"))
     return pd.DataFrame(rows)
@@ -110,13 +111,6 @@ class NAVSummaryParserTest(unittest.TestCase):
         self.assertEqual(
             parsed_items,
             [
-                {
-                    "description": "BASE CURRENCY",
-                    "prior_market_value_base": None,
-                    "current_market_value_base": None,
-                    "market_value_base_change": None,
-                    "market_value_percent_change": None,
-                },
                 {
                     "description": "NET INCOME",
                     "prior_market_value_base": Decimal("-10"),
