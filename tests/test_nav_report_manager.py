@@ -12,35 +12,54 @@ from fundrock.nav_report_manager import NAVReportFileManager
 
 
 class NAVReportFileManagerTest(unittest.TestCase):
-    def test_tear_down_drops_database_tables_and_report_data(self):
+    def _manager(self, directory):
+        connection_string = f"sqlite:///{Path(directory) / 'sub' / 'nav.db'}"
+        with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
+            return NAVReportFileManager(connection_string)
+
+    def test_set_up_creates_new_database_with_tables(self):
         with tempfile.TemporaryDirectory() as directory:
-            database_path = Path(directory) / "nav.db"
-            connection_string = f"sqlite:///{database_path}"
-            engine = create_engine(connection_string)
-            Base.metadata.create_all(engine)
+            manager = self._manager(directory)
+            self.assertFalse(manager.database_exists())
+            manager.set_up()
+            self.assertTrue(manager.database_exists())
+            engine = create_engine(manager.db_connection_string)
+            try:
+                self.assertIn("nav_reports", inspect(engine).get_table_names())
+            finally:
+                engine.dispose()
+
+    def test_set_up_refuses_when_database_exists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = self._manager(directory)
+            manager.set_up()
+            with self.assertLogs("fundrock.nav_report_manager", "ERROR") as logs:
+                with self.assertRaises(FileExistsError):
+                    manager.set_up()
+            self.assertIn("tear_down()", logs.output[0])
+
+    def test_tear_down_removes_database_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = self._manager(directory)
+            manager.set_up()
+            engine = create_engine(manager.db_connection_string)
             with Session(engine) as session:
                 session.add(
-                    NAVReport(
-                        portfolio_code="65713",
-                        report_date=datetime.date(2026, 9, 29),
-                    )
+                    NAVReport(portfolio_code="65713", report_date=datetime.date(2026, 9, 29))
                 )
                 session.commit()
             engine.dispose()
-
-            with (
-                patch("fundrock.nav_report_manager.get_data_path", return_value=directory),
-                patch("fundrock.nav_report_manager.get_var_path", return_value=str(database_path)),
-            ):
-                manager = NAVReportFileManager(connection_string)
-
             manager.tear_down()
+            self.assertFalse(manager.database_exists())
+            manager.tear_down()
+            manager.set_up()
+            self.assertTrue(manager.database_exists())
 
-            engine = create_engine(connection_string)
-            try:
-                self.assertEqual(inspect(engine).get_table_names(), [])
-            finally:
-                engine.dispose()
+    def test_set_up_rejects_in_memory_database(self):
+        with patch("fundrock.nav_report_manager.get_data_path", return_value="/tmp"):
+            manager = NAVReportFileManager("sqlite:///:memory:")
+        with self.assertRaises(ValueError):
+            manager.set_up()
 
     def test_default_database_is_created_under_var_directory(self):
         with (

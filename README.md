@@ -45,9 +45,14 @@ Columns with no detail values are skipped. Mismatches are logged at `CRITICAL`
 with the report, group, field, expected value, and actual total; they do not
 prevent the report from being saved.
 
-For an explicit clean start during testing, call `tear_down()` before processing.
-This drops every table and all data in the configured database:
+The database lifecycle is explicit. `set_up()` creates a brand-new database with
+all tables. If the database already exists it logs an `ERROR` and raises
+`FileExistsError`, stating that it must first be torn down with `tear_down()`.
+`tear_down()` deletes the database file so that it no longer exists (safe to call
+when it is already absent). Only file-based SQLite databases are supported.
 
 ```python
-manager.tear_down()
+manager.tear_down()   # database no longer exists
+manager.set_up()      # fresh empty database
+manager.process_all_reports()
 ```
