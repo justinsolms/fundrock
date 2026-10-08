@@ -5,10 +5,31 @@ from pathlib import Path
 from unittest.mock import call, patch
 
 from sqlalchemy import create_engine, inspect
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fundrock.nav_report_classes import Base, NAVReport
 from fundrock.nav_report_manager import NAVReportFileManager
+from fundrock.nav_report_parser import ReportParser
+
+
+def _fake_process(file_path, db_connection_string):
+    name = Path(file_path).name
+    engine = create_engine(db_connection_string)
+    with Session(engine) as session:
+        for old in session.scalars(select(NAVReport).where(NAVReport.source_file == name)):
+            session.delete(old)
+        session.flush()
+        session.add(
+            NAVReport(
+                portfolio_code="65713",
+                report_date=datetime.date.fromisoformat(name[10:20]),
+                source_file=name,
+                file_time_stamp=ReportParser.file_time_stamp(file_path),
+            )
+        )
+        session.commit()
+    engine.dispose()
 
 
 class NAVReportFileManagerTest(unittest.TestCase):
@@ -16,6 +37,61 @@ class NAVReportFileManagerTest(unittest.TestCase):
         connection_string = f"sqlite:///{Path(directory) / 'sub' / 'nav.db'}"
         with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
             return NAVReportFileManager(connection_string)
+
+    def test_update_adds_new_updates_modified_and_skips_unchanged(self):
+        import os
+
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "NAV_65713_2026-08-03.xls"
+            second = Path(directory) / "NAV_65713_2026-08-04.xls"
+            first.write_text("a")
+            with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
+                manager = NAVReportFileManager(f"sqlite:///{Path(directory) / 'db' / 'nav.db'}")
+            manager.set_up()
+            with patch.object(ReportParser, "process_excel_file", side_effect=_fake_process):
+                result = manager.update()
+                self.assertEqual(result.added, [first])
+
+                second.write_text("b")
+                result = manager.update()
+                self.assertEqual((result.added, result.unchanged), ([second], [first]))
+
+                stat = first.stat()
+                os.utime(first, (stat.st_atime, stat.st_mtime + 100))
+                result = manager.update()
+                self.assertEqual(
+                    (result.updated, result.unchanged, result.added), ([first], [second], [])
+                )
+
+                result = manager.update()
+                self.assertEqual(result.unchanged, [first, second])
+
+    def test_update_reports_failed_file_and_continues(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bad = Path(directory) / "NAV_65713_2026-08-03.xls"
+            good = Path(directory) / "NAV_65713_2026-08-04.xls"
+            bad.write_text("a")
+            good.write_text("b")
+            with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
+                manager = NAVReportFileManager(f"sqlite:///{Path(directory) / 'db' / 'nav.db'}")
+            manager.set_up()
+
+            def process(file_path, db_connection_string):
+                if Path(file_path) == bad:
+                    raise ValueError("boom")
+                _fake_process(file_path, db_connection_string)
+
+            with patch.object(ReportParser, "process_excel_file", side_effect=process):
+                with self.assertLogs("fundrock.nav_report_manager", "ERROR"):
+                    result = manager.update()
+        self.assertEqual((result.failed, result.added), ([bad], [good]))
+
+    def test_update_refuses_when_database_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = self._manager(directory)
+            with self.assertLogs("fundrock.nav_report_manager", "ERROR"):
+                with self.assertRaises(FileNotFoundError):
+                    manager.update()
 
     def test_set_up_creates_new_database_with_tables(self):
         with tempfile.TemporaryDirectory() as directory:

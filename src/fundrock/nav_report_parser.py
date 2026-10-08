@@ -385,7 +385,7 @@ class ExchangeRatesParser(BaseBlockParser):
 
 
 import pandas as pd
-from sqlalchemy import create_engine, select
+from sqlalchemy import and_, create_engine, or_, select
 from sqlalchemy.orm import sessionmaker
 from typing import Optional, Dict, Any, List
 
@@ -474,6 +474,15 @@ class ReportParser:
         
         return report
 
+    @staticmethod
+    def file_time_stamp(file_path: str | Path) -> Optional[datetime.datetime]:
+        """Return the file's modification time as a naive UTC datetime, or None if unreadable."""
+        try:
+            modified = Path(file_path).stat().st_mtime
+        except OSError:
+            return None
+        return datetime.datetime.fromtimestamp(modified, datetime.timezone.utc).replace(tzinfo=None)
+
     @classmethod
     def process_excel_file(cls, file_path: str, db_connection_string: str) -> None:
         """
@@ -504,11 +513,19 @@ class ReportParser:
                 f"cell C3 has {report.report_date}, filename has {filename_date}"
             )
 
+        report.source_file = Path(file_path).name
+        report.file_time_stamp = cls.file_time_stamp(file_path)
+
         with Session() as session:
             existing_reports = session.scalars(
                 select(NAVReport).where(
-                    NAVReport.portfolio_code == report.portfolio_code,
-                    NAVReport.report_date == report.report_date,
+                    or_(
+                        and_(
+                            NAVReport.portfolio_code == report.portfolio_code,
+                            NAVReport.report_date == report.report_date,
+                        ),
+                        NAVReport.source_file == report.source_file,
+                    )
                 )
             ).all()
             for existing_report in existing_reports:

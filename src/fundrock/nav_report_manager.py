@@ -3,16 +3,28 @@
 import datetime
 import logging
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
 
-from fundrock.nav_report_classes import Base
+from fundrock.nav_report_classes import Base, NAVReport
 from fundrock.nav_report_parser import ReportParser
 from fundrock.path_utils import get_data_path, get_database_path
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class UpdateResult:
+    """Outcome of NAVReportFileManager.update()."""
+
+    added: list[Path] = field(default_factory=list)
+    updated: list[Path] = field(default_factory=list)
+    unchanged: list[Path] = field(default_factory=list)
+    failed: list[Path] = field(default_factory=list)
 
 _REPORT_FILENAME = re.compile(
     r"NAV_[^_]+_(?P<report_date>\d{4}-\d{2}-\d{2})\.xlsx?",
@@ -105,3 +117,63 @@ class NAVReportFileManager:
                 db_connection_string=self.db_connection_string,
             )
         return report_files
+
+    def update(self) -> UpdateResult:
+        """Add new report files and refresh those modified since they were stored.
+
+        Files are matched to reports by file name. A file absent from the
+        database is added; one whose modification time is newer than the stored
+        ``file_time_stamp`` replaces its report; others are skipped. A failing
+        file is logged at ERROR, reported in ``failed`` and retried next time.
+        """
+        if not self.database_exists():
+            message = (
+                f"Database does not exist: {self._database_file()}. "
+                "Create it first with the set_up() method."
+            )
+            logger.error(message)
+            raise FileNotFoundError(message)
+
+        engine = create_engine(self.db_connection_string)
+        try:
+            with Session(engine) as session:
+                stored = dict(
+                    session.execute(
+                        select(NAVReport.source_file, NAVReport.file_time_stamp)
+                    ).tuples().all()
+                )
+        finally:
+            engine.dispose()
+
+        result = UpdateResult()
+        for file_path in self.find_report_files():
+            file_time_stamp = ReportParser.file_time_stamp(file_path)
+            if file_path.name not in stored:
+                bucket = result.added
+            elif (
+                file_time_stamp is not None
+                and (stored[file_path.name] is None or file_time_stamp > stored[file_path.name])
+            ):
+                bucket = result.updated
+            else:
+                result.unchanged.append(file_path)
+                continue
+            try:
+                ReportParser.process_excel_file(
+                    file_path=str(file_path),
+                    db_connection_string=self.db_connection_string,
+                )
+            except Exception:
+                logger.exception("Failed to process NAV report file: %s", file_path)
+                result.failed.append(file_path)
+            else:
+                bucket.append(file_path)
+
+        logger.info(
+            "NAV update: %d added, %d updated, %d unchanged, %d failed",
+            len(result.added),
+            len(result.updated),
+            len(result.unchanged),
+            len(result.failed),
+        )
+        return result

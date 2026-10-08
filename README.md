@@ -63,3 +63,14 @@ Call `fundrock.logging_setup.configure_logging()` once at start-up. It applies
 `src/fundrock/config/log_config.yaml`: the `fundrock` logger writes to the
 console and to a midnight-rotating file `var/log/fundrock.log`
 (`fundrock.dblogging.FileHandler`).
+
+## Updating from new or changed files
+
+`manager.update()` brings an existing database up to date with the cache folder
+(it requires `set_up()` to have been run; otherwise it logs an `ERROR` and raises
+`FileNotFoundError`). Each report stores its `source_file` name and the file's
+modification time (`file_time_stamp`, UTC). Files not yet in the database are
+added; files modified since they were stored replace their report; the rest are
+skipped. A failing file is logged at `ERROR` and returned in `failed` (retried on
+the next update). It returns an `UpdateResult` with `added`, `updated`,
+`unchanged` and `failed` file lists. Reports whose files were removed are kept.

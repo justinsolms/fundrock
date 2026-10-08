@@ -2,7 +2,7 @@ import datetime
 import decimal
 from typing import List, Optional
 
-from sqlalchemy import String, Date, Numeric, ForeignKey, UniqueConstraint
+from sqlalchemy import String, Date, DateTime, Numeric, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -24,6 +24,10 @@ class NAVReport(Base):
     report_date: Mapped[datetime.date] = mapped_column(Date, index=True)
     portfolio_name: Mapped[Optional[str]] = mapped_column(String(255))
     base_currency: Mapped[Optional[str]] = mapped_column(String(10))
+
+    # Source file name and its OS modification time (UTC, naive) when parsed
+    source_file: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
+    file_time_stamp: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     
     # Relationships
     groups: Mapped[List["Group"]] = relationship(back_populates="report", cascade="all, delete-orphan")
