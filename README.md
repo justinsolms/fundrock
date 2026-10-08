@@ -56,3 +56,10 @@ manager.tear_down()   # database no longer exists
 manager.set_up()      # fresh empty database
 manager.process_all_reports()
 ```
+
+## Logging
+
+Call `fundrock.logging_setup.configure_logging()` once at start-up. It applies
+`src/fundrock/config/log_config.yaml`: the `fundrock` logger writes to the
+console and to a midnight-rotating file `var/log/fundrock.log`
+(`fundrock.dblogging.FileHandler`).
