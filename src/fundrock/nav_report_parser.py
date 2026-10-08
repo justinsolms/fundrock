@@ -129,6 +129,12 @@ class GroupParser(BaseBlockParser):
         "total_market_value_base_change": ("market_value_base_change", 15),
         "total_percent_of_market_value": ("percent_of_market_value", 19),
     }
+    _REPORT_TOTAL_COLUMNS = (
+        "total_prior_market_value_base",
+        "total_current_market_value_base",
+        "total_market_value_base_change",
+        "total_percent_of_market_value",
+    )
     _PERCENT_TOTAL_FIELD = "total_percent_of_market_value"
     
     def __init__(self) -> None:
@@ -334,6 +340,40 @@ class GroupParser(BaseBlockParser):
                     }
                 )
         return mismatches
+
+    @classmethod
+    def _validate_report_total(
+        cls,
+        groups: List[Dict[str, Any]],
+        total_row: pd.Series,
+    ) -> List[Dict[str, Any]]:
+        mismatches: List[Dict[str, Any]] = []
+        for total_field in cls._REPORT_TOTAL_COLUMNS:
+            group_values = [
+                group[total_field]
+                for group in groups
+                if group[total_field] is not None
+            ]
+            if not group_values:
+                continue
+
+            expected = sum(group_values, Decimal(0))
+            total_column = cls._TOTAL_COLUMNS[total_field][1]
+            actual = cls._to_decimal(total_row[total_column])
+            tolerance = (
+                Decimal("0.00005") * (len(group_values) + 1)
+                if total_field == cls._PERCENT_TOTAL_FIELD
+                else Decimal(0)
+            )
+            if actual is None or abs(expected - actual) > tolerance:
+                mismatches.append(
+                    {
+                        "field": total_field,
+                        "expected": expected,
+                        "actual": actual,
+                    }
+                )
+        return mismatches
     
     
 class NAVSummaryParser(BaseBlockParser):
@@ -433,6 +473,15 @@ class ReportParser:
         
         body_df: pd.DataFrame = cls.extract_body_dataframe(df)
         parsed_groups_list: List[Dict[str, Any]] = GroupParser.extract_and_parse_all(body_df)
+        total_net_assets_rows = df.loc[
+            df[2].astype(str).str.strip().str.upper() == "TOTAL NET ASSETS"
+        ]
+        if total_net_assets_rows.empty:
+            raise ValueError("Failed to locate 'TOTAL NET ASSETS' row.")
+        total_net_assets_mismatches = GroupParser._validate_report_total(
+            parsed_groups_list,
+            total_net_assets_rows.iloc[0],
+        )
         
         for g_kwargs in parsed_groups_list:
             child_group_kwargs = g_kwargs.pop("child_groups", [])
@@ -461,6 +510,16 @@ class ReportParser:
                 child_group = Group(**child_kwargs, parent_group=group)
                 child_group.rows = [Row(**r_kwargs) for r_kwargs in child_rows]
                 report.groups.append(child_group)
+
+        for mismatch in total_net_assets_mismatches:
+            logger.critical(
+                "NAV group total mismatch: file=%s group=TOTAL NET ASSETS "
+                "instrument_type=None field=%s expected=%s actual=%s",
+                source_file,
+                mismatch["field"],
+                mismatch["expected"],
+                mismatch["actual"],
+            )
             
         tail_start_idx: int = body_df.index[-1] + 1
         tail_df: pd.DataFrame = df.iloc[tail_start_idx:]

@@ -29,7 +29,10 @@ def _excel_row(
     return row
 
 
-def _report_dataframe(body_rows: list[list[object | None]]) -> pd.DataFrame:
+def _report_dataframe(
+    body_rows: list[list[object | None]],
+    total_net_assets_values: dict[int, object] | None = None,
+) -> pd.DataFrame:
     rows = [_excel_row() for _ in range(10)]
     rows[2][2] = "as at 07/08/2026"
     rows[5][2] = "Portfolio Code:"
@@ -40,7 +43,7 @@ def _report_dataframe(body_rows: list[list[object | None]]) -> pd.DataFrame:
     rows[7][3] = "ZAR"
     rows[9][2] = "Security Code"
     rows.extend(body_rows)
-    rows.append(_excel_row("TOTAL NET ASSETS"))
+    rows.append(_excel_row("TOTAL NET ASSETS", values=total_net_assets_values))
     return pd.DataFrame(rows)
 
 
@@ -209,6 +212,79 @@ class GroupParserTest(unittest.TestCase):
             ],
         )
 
+    def test_validates_report_total_against_group_totals(self):
+        groups = [
+            {
+                "total_current_book_value_base": Decimal("100"),
+                "total_prior_market_value_base": Decimal("10"),
+                "total_current_market_value_base": Decimal("12"),
+                "total_market_value_base_change": Decimal("2"),
+                "total_percent_of_market_value": Decimal("0.25"),
+            },
+            {
+                "total_current_book_value_base": Decimal("200"),
+                "total_prior_market_value_base": Decimal("20"),
+                "total_current_market_value_base": Decimal("24"),
+                "total_market_value_base_change": Decimal("4"),
+                "total_percent_of_market_value": Decimal("0.50"),
+            },
+        ]
+        total_row = pd.Series(
+            _excel_row(
+                "TOTAL NET ASSETS",
+                values={12: 0, 13: 30, 14: 36, 15: 6, 19: 0.75},
+            )
+        )
+
+        self.assertEqual(
+            GroupParser._validate_report_total(groups, total_row),
+            [],
+        )
+
+        incorrect_percentage_row = pd.Series(
+            _excel_row(
+                "TOTAL NET ASSETS",
+                values={12: 0, 13: 30, 14: 36, 15: 6, 19: 0.7},
+            )
+        )
+        self.assertEqual(
+            GroupParser._validate_report_total(groups, incorrect_percentage_row),
+            [
+                {
+                    "field": "total_percent_of_market_value",
+                    "expected": Decimal("0.75"),
+                    "actual": Decimal("0.7"),
+                }
+            ],
+        )
+
+    def test_report_total_mismatch_is_logged(self):
+        dataframe = _report_dataframe(
+            [
+                _excel_row("CASH"),
+                _excel_row("CASH-001", "Cash", {13: 10, 14: 12, 15: 2, 19: 25}),
+                _excel_row(
+                    "CASH TOTAL",
+                    values={13: 10, 14: 12, 15: 2, 19: 0.25},
+                ),
+            ],
+            total_net_assets_values={13: 9, 14: 12, 15: 2, 19: 0.25},
+        )
+
+        with self.assertLogs("fundrock.nav_report_parser", level="CRITICAL") as logs:
+            ReportParser.parse(dataframe, source_file="sample.xls")
+
+        self.assertTrue(
+            any(
+                "file=sample.xls" in message
+                and "group=TOTAL NET ASSETS" in message
+                and "field=total_prior_market_value_base" in message
+                and "expected=10" in message
+                and "actual=9" in message
+                for message in logs.output
+            )
+        )
+
     def test_report_parse_builds_holdings_parent_child_relationship(self):
         dataframe = _report_dataframe(
             [
@@ -223,7 +299,8 @@ class GroupParserTest(unittest.TestCase):
                     "HOLDINGS AT MARKET VALUE TOTAL",
                     values={12: 1, 13: 10, 14: 9, 15: -1, 19: 0.5},
                 ),
-            ]
+            ],
+            total_net_assets_values={13: 10, 14: 9, 15: -1, 19: 0.5},
         )
 
         report = ReportParser.parse(dataframe)
