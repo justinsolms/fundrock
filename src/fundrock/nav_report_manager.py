@@ -10,7 +10,7 @@ from sqlalchemy.engine import make_url
 
 from fundrock.nav_report_classes import Base
 from fundrock.nav_report_parser import ReportParser
-from fundrock.path_utils import get_data_path, get_var_path
+from fundrock.path_utils import get_data_path, get_database_path
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class NAVReportFileManager:
         data_sub_path: str = "fundrock/nav_cache",
     ) -> None:
         if db_connection_string is None:
-            database_path = Path(get_var_path("nav_database.db"))
+            database_path = Path(get_database_path("nav_database.db"))
             db_connection_string = f"sqlite:///{database_path}"
         self.db_connection_string = db_connection_string
         self.data_path = Path(get_data_path(data_sub_path))

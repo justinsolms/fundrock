@@ -21,6 +21,8 @@ _VAR_TEST = "var_test"
 _LOG = "log"
 _TMP = "tmp"
 _CACHE = "cache"
+_DATABASE = "db"
+
 
 # Authentication certificates path
 _CERTIFICATES = 'certificates'
@@ -178,4 +180,15 @@ def get_cache_path(sub_path: str | None = None, testing: bool = False) -> str:
     if sub_path is not None:
         cache_path = os.path.join(cache_path, sub_path)
     return os.path.abspath(cache_path)
+
+def get_database_path(sub_path: str | None = None, testing: bool = False) -> str:
+    var_dir = get_var_path(testing=testing)
+    database_path = os.path.join(var_dir, _DATABASE)
+    # Create the database directory if it does not exist
+    if not os.path.exists(database_path):
+        os.makedirs(database_path)
+    # Add the sub_path if it is not None
+    if sub_path is not None:
+        database_path = os.path.join(database_path, sub_path)
+    return os.path.abspath(database_path)
 
