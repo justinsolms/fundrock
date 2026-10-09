@@ -66,7 +66,7 @@ def update() -> None:
 
 
 @main.command("export-summary")
-@click.option("--portfolio", "portfolio_code", required=True, help="Portfolio code.")
+@click.option("-p", "--portfolio", "portfolio_code", required=True, help="Portfolio code.")
 @click.option("--sub-path", default=None, help="Output sub-directory (no filename).")
 def export_summary(portfolio_code: str, sub_path: str | None) -> None:
     """Export a portfolio's NAV Summary time series to a CSV file."""

@@ -77,10 +77,10 @@ class ExportSummaryCliTest(CliTest):
         self.addCleanup(patcher.stop)
 
     def test_export_summary(self):
-        self.provider.write_nav_summary_csv.return_value = Path("/o/NAVSummary-P1-2026-01-02.csv")
+        self.provider.write_nav_summary_csv.return_value = Path("/o/NAVSummaryHistory-P1-2026-01-02.csv")
         result = self.runner.invoke(main, ["export-summary", "--portfolio", "P1"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("NAVSummary-P1-2026-01-02.csv", result.output)
+        self.assertIn("NAVSummaryHistory-P1-2026-01-02.csv", result.output)
         self.provider_class.assert_called_once_with("P1")
         self.provider.write_nav_summary_csv.assert_called_once_with(None)
 

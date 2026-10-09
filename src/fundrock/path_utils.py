@@ -37,7 +37,7 @@ _CONTENT = 'content'
 _ART = 'art'
 
 # General output path
-_OUTPUT = '~/Documents/MyDrive/allocate'
+_OUTPUT = '~/Downloads'
 
 def get_project_path() -> str:
     """Return the absolute path of the project root (parent of ``src``)."""

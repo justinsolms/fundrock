@@ -45,7 +45,7 @@ class NAVDataProviderTest(unittest.TestCase):
             out.mkdir()
             with patch("fundrock.nav_data_provider.get_output_path", return_value=str(out)):
                 path = provider.write_nav_summary_csv()
-            self.assertEqual(path.name, "NAVSummary-P1-2026-01-02.csv")
+            self.assertEqual(path.name, "NAVSummaryHistory-P1-2026-01-02.csv")
             written = pd.read_csv(path, index_col=0, parse_dates=True)
             self.assertEqual(written["Cash"].tolist(), [8, 10])
 

@@ -72,11 +72,11 @@ class NAVDataProvider:
         """Write the portfolio's NAV Summary time series to a CSV file.
 
         Uses :meth:`nav_summary_frames`. The file is named
-        ``NAVSummary-<portfolio_code>-<latest report_date>.csv`` and written
+        ``NAVSummaryHistory-<portfolio_code>-<latest report_date>.csv`` and written
         under ``get_output_path(sub_path)``. Returns the written path.
         """
         frame = self.nav_summary_frames()
         latest = frame.index.max().date().isoformat()
-        file_path = Path(get_output_path(sub_path)) / f"NAVSummary-{self.portfolio_code}-{latest}.csv"
+        file_path = Path(get_output_path(sub_path)) / f"NAVSummaryHistory-{self.portfolio_code}-{latest}.csv"
         frame.to_csv(file_path)
         return file_path
