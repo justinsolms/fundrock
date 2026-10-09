@@ -3,6 +3,7 @@
 import click
 
 from fundrock.logging_setup import configure_logging
+from fundrock.nav_data_provider import NAVDataProvider
 from fundrock.nav_report_manager import NAVReportFileManager
 
 _PROCEED_PHRASE = "please proceed"
@@ -65,19 +66,16 @@ def update() -> None:
 
 
 @main.command("export-summary")
-@click.option("--portfolio", "portfolio_code", default=None, help="Only this portfolio code.")
+@click.option("--portfolio", "portfolio_code", required=True, help="Portfolio code.")
 @click.option("--sub-path", default=None, help="Output sub-directory (no filename).")
-def export_summary(portfolio_code: str | None, sub_path: str | None) -> None:
-    """Export each portfolio's NAV Summary time series to a CSV file."""
-    manager = NAVReportFileManager()
+def export_summary(portfolio_code: str, sub_path: str | None) -> None:
+    """Export a portfolio's NAV Summary time series to a CSV file."""
+    provider = NAVDataProvider(portfolio_code)
     try:
-        paths = manager.write_nav_summary_csv(portfolio_code, sub_path)
+        path = provider.write_nav_summary_csv(sub_path)
     except (FileNotFoundError, ValueError) as error:
         raise click.ClickException(str(error))
-    if not paths:
-        click.echo("No NAV summary data to export.")
-    for path in paths:
-        click.echo(f"Wrote {path}")
+    click.echo(f"Wrote {path}")
 
 
 if __name__ == "__main__":

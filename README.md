@@ -47,6 +47,16 @@ prevent the report from being saved.
 Summary items are read from the rows after `BASE CURRENCY` and before
 `Calculated NAV Value Difference`; these headings are not stored as items.
 
+To read stored data for one portfolio, use `NAVDataProvider`:
+
+```python
+from fundrock.nav_data_provider import NAVDataProvider
+
+provider = NAVDataProvider("65713")
+frame = provider.nav_summary_frames()   # DataFrame indexed by report_date, one column per summary description
+path = provider.write_nav_summary_csv() # NAVSummary-65713-<latest date>.csv under the output path
+```
+
 The database lifecycle is explicit. `set_up()` creates a brand-new database with
 all tables. If the database already exists it logs an `ERROR` and raises
 `FileExistsError`, stating that it must first be torn down with `tear_down()`.
@@ -87,5 +97,5 @@ fundrock --version | -v     print the version
 fundrock set-up             create a new, empty database (refuses if one exists)
 fundrock tear-down          delete the database; asks you to type "please proceed" (or use --yes)
 fundrock update             add new / modified NAV report files to the database
-fundrock export-summary     write each portfolio's NAV Summary time series to NAVSummary-<code>-<date>.csv (--portfolio, --sub-path)
+fundrock export-summary     write a portfolio's NAV Summary time series to NAVSummary-<code>-<date>.csv (--portfolio required, --sub-path optional)
 ```

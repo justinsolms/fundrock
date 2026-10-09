@@ -69,15 +69,23 @@ class CliTest(unittest.TestCase):
 
 
 class ExportSummaryCliTest(CliTest):
+    def setUp(self):
+        super().setUp()
+        patcher = patch("fundrock.__main__.NAVDataProvider")
+        self.provider_class = patcher.start()
+        self.provider = self.provider_class.return_value
+        self.addCleanup(patcher.stop)
+
     def test_export_summary(self):
-        self.manager.write_nav_summary_csv.return_value = [Path("/o/NAVSummary-P1-2026-01-02.csv")]
+        self.provider.write_nav_summary_csv.return_value = Path("/o/NAVSummary-P1-2026-01-02.csv")
         result = self.runner.invoke(main, ["export-summary", "--portfolio", "P1"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("NAVSummary-P1-2026-01-02.csv", result.output)
-        self.manager.write_nav_summary_csv.assert_called_once_with("P1", None)
+        self.provider_class.assert_called_once_with("P1")
+        self.provider.write_nav_summary_csv.assert_called_once_with(None)
 
     def test_export_summary_error(self):
-        self.manager.write_nav_summary_csv.side_effect = ValueError("No NAV summary data")
-        result = self.runner.invoke(main, ["export-summary"])
+        self.provider.write_nav_summary_csv.side_effect = ValueError("No NAV summary data")
+        result = self.runner.invoke(main, ["export-summary", "--portfolio", "P1"])
         self.assertEqual(result.exit_code, 1)
         self.assertIn("No NAV summary data", result.output)
