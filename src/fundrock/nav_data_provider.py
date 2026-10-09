@@ -1,10 +1,12 @@
 """Present data items from the NAV reports stored in the database."""
 
 import logging
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import holidays
 import pandas as pd
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from fundrock.nav_report_classes import NAVReport, SummaryItem
@@ -15,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class NAVDataProvider:
-    """Provide data from the stored :class:`NAVReport` instances of one portfolio."""
+    """Provide data from one portfolio's stored :class:`NAVReport` instances.
+
+    ``COUNTRY_CODE`` selects the country used for public-holiday calculations.
+    """
+
+    # Country code used for public holiday calculations.
+    COUNTRY_CODE = "ZA"
 
     def __init__(self, portfolio_code: str, db_connection_string: str | None = None) -> None:
         self.portfolio_code = portfolio_code
@@ -80,3 +88,50 @@ class NAVDataProvider:
         file_path = Path(get_output_path(sub_path)) / f"NAVSummaryHistory-{self.portfolio_code}-{latest}.csv"
         frame.to_csv(file_path)
         return file_path
+
+    def last_date(self) -> date | None:
+        """Return the latest ``report_date`` stored for the portfolio.
+
+        Returns ``None`` when the portfolio has no reports. Raises
+        ``FileNotFoundError`` if the database does not exist.
+        """
+        if not self._manager.database_exists():
+            message = (
+                "Database does not exist. Create it first with the set_up() method."
+            )
+            logger.error(message)
+            raise FileNotFoundError(message)
+
+        query = select(func.max(NAVReport.report_date)).where(
+            NAVReport.portfolio_code == self.portfolio_code
+        )
+        engine = create_engine(self.db_connection_string)
+        try:
+            with Session(engine) as session:
+                result = session.execute(query).scalar()
+        finally:
+            engine.dispose()
+
+        if result is None:
+            return None
+        return result.date() if isinstance(result, datetime) else result
+
+    @classmethod
+    def previous_business_day(cls, today: date | None = None) -> date:
+        """Return the business day before ``today`` for ``COUNTRY_CODE``.
+
+        Weekends and public holidays for the configured country are skipped.
+        """
+        today = today or date.today()
+        za_holidays = holidays.country_holidays(
+            cls.COUNTRY_CODE, years=range(today.year - 1, today.year + 1)
+        )
+        day = today - timedelta(days=1)
+        while day.weekday() >= 5 or day in za_holidays:
+            day -= timedelta(days=1)
+        return day
+
+    def is_up_to_date(self, today: date | None = None) -> bool:
+        """Return whether the last stored date is the previous ZA business day."""
+        last = self.last_date()
+        return last is not None and last == self.previous_business_day(today)

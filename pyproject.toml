@@ -21,6 +21,7 @@ dependencies = [
     "xlrd",
     "pyyaml",
     "click",
+    "holidays",
 ]
 
 [project.scripts]
