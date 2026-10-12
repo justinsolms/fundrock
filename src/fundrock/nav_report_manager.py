@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+import holidays
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,7 @@ class UpdateResult:
     updated: list[Path] = field(default_factory=list[Path])
     unchanged: list[Path] = field(default_factory=list[Path])
     failed: list[Path] = field(default_factory=list[Path])
+    missing_business_days: list[datetime.date] = field(default_factory=list[datetime.date])
 
 _REPORT_FILENAME = re.compile(
     r"NAV_[^_]+_(?P<report_date>\d{4}-\d{2}-\d{2})\.xlsx?",
@@ -33,7 +35,12 @@ _REPORT_FILENAME = re.compile(
 
 
 class NAVReportFileManager:
-    """Find and process dated NAV Excel reports from the data directory."""
+    """Find and process dated NAV Excel reports from the data directory.
+
+    ``COUNTRY_CODE`` selects the country used for public-holiday calculations.
+    """
+
+    COUNTRY_CODE = "ZA"
 
     def __init__(
         self,
@@ -45,6 +52,87 @@ class NAVReportFileManager:
             db_connection_string = f"sqlite:///{database_path}"
         self.db_connection_string = db_connection_string
         self.data_path = Path(get_data_path(data_sub_path))
+
+    @classmethod
+    def _holidays(cls, first_year: int, last_year: int) -> holidays.HolidayBase:
+        return holidays.country_holidays(cls.COUNTRY_CODE, years=range(first_year, last_year + 1))
+
+    @classmethod
+    def is_business_day(cls, day: datetime.date) -> bool:
+        """Return whether ``day`` is neither a weekend nor a public holiday."""
+        return day.weekday() < 5 and day not in cls._holidays(day.year, day.year)
+
+    @classmethod
+    def previous_business_day(cls, today: datetime.date | None = None) -> datetime.date:
+        """Return the business day before ``today`` for ``COUNTRY_CODE``."""
+        today = today or datetime.date.today()
+        public_holidays = cls._holidays(today.year - 1, today.year)
+        day = today - datetime.timedelta(days=1)
+        while day.weekday() >= 5 or day in public_holidays:
+            day -= datetime.timedelta(days=1)
+        return day
+
+    def report_dates(self) -> list[datetime.date]:
+        """Return the distinct stored report dates in ascending order."""
+        engine = create_engine(self.db_connection_string)
+        try:
+            with Session(engine) as session:
+                rows = session.execute(
+                    select(NAVReport.report_date).distinct().order_by(NAVReport.report_date)
+                ).scalars().all()
+        finally:
+            engine.dispose()
+        return [row.date() if isinstance(row, datetime.datetime) else row for row in rows]
+
+    def continuity_test(self, today: datetime.date | None = None) -> list[datetime.date]:
+        """Return business days lacking any NAV report, warning for each gap.
+
+        The range runs from the earliest stored report date to the previous
+        business day before ``today``. Missing days at the end of the range
+        mean the database is not up to date. An empty database has no gaps.
+        """
+        if not self.database_exists():
+            raise FileNotFoundError(f"Database does not exist: {self._database_file()}")
+        dates = self.report_dates()
+        if not dates:
+            return []
+        stored = set(dates)
+        end = self.previous_business_day(today)
+        public_holidays = self._holidays(dates[0].year, max(end.year, dates[-1].year))
+        missing: list[datetime.date] = []
+        day = dates[0]
+        while day <= end:
+            if day.weekday() < 5 and day not in public_holidays and day not in stored:
+                missing.append(day)
+            day += datetime.timedelta(days=1)
+        for day in missing:
+            logger.warning("NAV continuity: no report found for business day %s", day.isoformat())
+        return missing
+
+    def status(self, today: datetime.date | None = None) -> dict[str, object]:
+        """Return database metrics and the result of the continuity test."""
+        missing = self.continuity_test(today)
+        engine = create_engine(self.db_connection_string)
+        try:
+            with Session(engine) as session:
+                report_count = session.execute(select(func.count(NAVReport.id))).scalar() or 0
+                portfolios = session.execute(
+                    select(func.count(func.distinct(NAVReport.portfolio_code)))
+                ).scalar() or 0
+        finally:
+            engine.dispose()
+        dates = self.report_dates()
+        last = dates[-1] if dates else None
+        expected = self.previous_business_day(today)
+        return {
+            "report_count": report_count,
+            "portfolio_count": portfolios,
+            "first_date": dates[0] if dates else None,
+            "last_date": last,
+            "expected_last_date": expected,
+            "up_to_date": last == expected,
+            "missing_business_days": missing,
+        }
 
     def _database_file(self) -> Path:
         """Return the SQLite database file path for the connection string."""
@@ -167,6 +255,8 @@ class NAVReportFileManager:
                 result.failed.append(file_path)
             else:
                 bucket.append(file_path)
+
+        result.missing_business_days = self.continuity_test()
 
         logger.info(
             "NAV update: %d added, %d updated, %d unchanged, %d failed",

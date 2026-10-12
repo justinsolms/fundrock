@@ -9,13 +9,51 @@ from fundrock.nav_report_manager import NAVReportFileManager
 _PROCEED_PHRASE = "please proceed"
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    invoke_without_command=True,
+)
 @click.version_option(
     None, "-v", "--version", package_name="fundrock", prog_name="fundrock"
 )
-def main() -> None:
+@click.option(
+    "-s", "--status", "show_status", is_flag=True,
+    help="Show database status and run the continuity test.",
+)
+@click.pass_context
+def main(ctx: click.Context, show_status: bool) -> None:
     """Manage the fundrock NAV report database."""
     configure_logging()
+    if show_status:
+        _show_status()
+        ctx.exit(0)
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+def _show_status() -> None:
+    manager = NAVReportFileManager()
+    try:
+        info = manager.status()
+    except FileNotFoundError as error:
+        raise click.ClickException(str(error))
+    missing = info["missing_business_days"]
+    click.echo(f"Database:            {manager.db_connection_string}")
+    click.echo(f"Reports:             {info['report_count']}")
+    click.echo(f"Portfolios:          {info['portfolio_count']}")
+    click.echo(f"First report date:   {info['first_date']}")
+    click.echo(f"Last report date:    {info['last_date']}")
+    click.echo(f"Expected last date:  {info['expected_last_date']}")
+    if info["up_to_date"]:
+        click.secho("Up to date:          yes", fg="green")
+    else:
+        click.secho("Up to date:          NO", fg="yellow")
+    if missing:
+        click.secho(f"Continuity:          {len(missing)} business day(s) without reports", fg="yellow")
+        for day in missing:
+            click.echo(f"  missing: {day.isoformat()}")
+    else:
+        click.secho("Continuity:          OK", fg="green")
 
 
 @main.command("set-up")
@@ -59,6 +97,8 @@ def update() -> None:
         f"Added {len(result.added)}, updated {len(result.updated)}, "
         f"unchanged {len(result.unchanged)}, failed {len(result.failed)}."
     )
+    for day in result.missing_business_days:
+        click.secho(f"  warning: no NAV report for business day {day.isoformat()}", fg="yellow", err=True)
     if result.failed:
         for path in result.failed:
             click.echo(f"  failed: {path}", err=True)

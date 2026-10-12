@@ -32,6 +32,37 @@ def _fake_process(file_path, db_connection_string):
     engine.dispose()
 
 
+class ContinuityTest(unittest.TestCase):
+    def _manager_with_dates(self, directory, dates):
+        manager = NAVReportFileManager(f"sqlite:///{Path(directory) / 'nav.db'}")
+        manager.set_up()
+        engine = create_engine(manager.db_connection_string)
+        with Session(engine) as session:
+            for d in dates:
+                session.add(NAVReport(portfolio_code="1", report_date=d, source_file=f"{d}.xlsx"))
+            session.commit()
+        engine.dispose()
+        return manager
+
+    def test_gap_and_staleness_reported(self):
+        D = datetime.date
+        with tempfile.TemporaryDirectory() as tmp:
+            # Mon 2025-06-02, Tue missing, Wed 4th, Thu 5th missing; today Fri 6th.
+            manager = self._manager_with_dates(tmp, [D(2025, 6, 2), D(2025, 6, 4)])
+            with self.assertLogs("fundrock.nav_report_manager", "WARNING"):
+                missing = manager.continuity_test(D(2025, 6, 6))
+            self.assertEqual(missing, [D(2025, 6, 3), D(2025, 6, 5)])
+            self.assertFalse(manager.status(D(2025, 6, 6))["up_to_date"])
+
+    def test_holidays_and_weekends_skipped(self):
+        D = datetime.date
+        with tempfile.TemporaryDirectory() as tmp:
+            # Fri 2025-04-18 is Good Friday, Mon 21st is Family Day.
+            manager = self._manager_with_dates(tmp, [D(2025, 4, 17), D(2025, 4, 22)])
+            self.assertEqual(manager.continuity_test(D(2025, 4, 23)), [])
+            self.assertTrue(manager.status(D(2025, 4, 23))["up_to_date"])
+
+
 class NAVReportFileManagerTest(unittest.TestCase):
     def _manager(self, directory):
         connection_string = f"sqlite:///{Path(directory) / 'sub' / 'nav.db'}"

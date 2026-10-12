@@ -30,6 +30,20 @@ class CliTest(unittest.TestCase):
             for name in ("set-up", "tear-down", "update", "export-summary"):
                 self.assertIn(name, result.output)
 
+    def test_status_switch(self):
+        import datetime
+        self.manager.status.return_value = {
+            "report_count": 3, "portfolio_count": 1,
+            "first_date": datetime.date(2025, 6, 2), "last_date": datetime.date(2025, 6, 4),
+            "expected_last_date": datetime.date(2025, 6, 5), "up_to_date": False,
+            "missing_business_days": [datetime.date(2025, 6, 3)],
+        }
+        for flag in ("-s", "--status"):
+            result = self.runner.invoke(main, [flag])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("missing: 2025-06-03", result.output)
+            self.assertIn("NO", result.output)
+
     def test_set_up(self):
         self.assertEqual(self.runner.invoke(main, ["set-up"]).exit_code, 0)
         self.manager.set_up.assert_called_once()

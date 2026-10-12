@@ -1,10 +1,9 @@
 """Present data items from the NAV reports stored in the database."""
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
-import holidays
 import pandas as pd
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -19,11 +18,8 @@ logger = logging.getLogger(__name__)
 class NAVDataProvider:
     """Provide data from one portfolio's stored :class:`NAVReport` instances.
 
-    ``COUNTRY_CODE`` selects the country used for public-holiday calculations.
+    Business days and holidays come from :class:`NAVReportFileManager`.
     """
-
-    # Country code used for public holiday calculations.
-    COUNTRY_CODE = "ZA"
 
     def __init__(self, portfolio_code: str, db_connection_string: str | None = None) -> None:
         self.portfolio_code = portfolio_code
@@ -118,18 +114,8 @@ class NAVDataProvider:
 
     @classmethod
     def previous_business_day(cls, today: date | None = None) -> date:
-        """Return the business day before ``today`` for ``COUNTRY_CODE``.
-
-        Weekends and public holidays for the configured country are skipped.
-        """
-        today = today or date.today()
-        za_holidays = holidays.country_holidays(
-            cls.COUNTRY_CODE, years=range(today.year - 1, today.year + 1)
-        )
-        day = today - timedelta(days=1)
-        while day.weekday() >= 5 or day in za_holidays:
-            day -= timedelta(days=1)
-        return day
+        """Return the business day before ``today``; see the file manager."""
+        return NAVReportFileManager.previous_business_day(today)
 
     def is_up_to_date(self, today: date | None = None) -> bool:
         """Return whether the last stored date is the previous ZA business day."""
