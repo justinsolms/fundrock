@@ -5,6 +5,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 import holidays
 from sqlalchemy import create_engine, func, select
@@ -16,6 +17,24 @@ from fundrock.nav_report_parser import ReportParser
 from fundrock.path_utils import get_data_path, get_database_path
 
 logger = logging.getLogger(__name__)
+
+
+class PortfolioStatus(TypedDict):
+    first_date: datetime.date
+    last_date: datetime.date
+    up_to_date: bool
+    missing_business_days: list[datetime.date]
+
+
+class NAVStatus(TypedDict):
+    report_count: int
+    portfolio_count: int
+    first_date: datetime.date | None
+    last_date: datetime.date | None
+    expected_last_date: datetime.date
+    up_to_date: bool
+    portfolios: dict[str, PortfolioStatus]
+    missing_business_days: dict[str, list[datetime.date]]
 
 
 @dataclass
@@ -121,7 +140,7 @@ class NAVReportFileManager:
                 missing[code] = gaps
         return missing
 
-    def status(self, today: datetime.date | None = None) -> dict[str, object]:
+    def status(self, today: datetime.date | None = None) -> NAVStatus:
         """Return database metrics and the per-portfolio continuity result."""
         missing = self.continuity_test(today)
         engine = create_engine(self.db_connection_string)
@@ -132,7 +151,7 @@ class NAVReportFileManager:
             engine.dispose()
         dates = self.report_dates()
         expected = self.previous_business_day(today)
-        portfolios = {
+        portfolios: dict[str, PortfolioStatus] = {
             code: {
                 "first_date": days[0],
                 "last_date": days[-1],

@@ -338,7 +338,7 @@ class GroupParserTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            GroupParser._validate_report_total(groups, total_row),
+            GroupParser.validate_report_total(groups, total_row),
             [],
         )
 
@@ -349,7 +349,7 @@ class GroupParserTest(unittest.TestCase):
             )
         )
         self.assertEqual(
-            GroupParser._validate_report_total(groups, incorrect_percentage_row),
+            GroupParser.validate_report_total(groups, incorrect_percentage_row),
             [
                 {
                     "field": "total_percent_of_market_value",
@@ -448,6 +448,7 @@ class ReportParserPersistenceTest(unittest.TestCase):
                 group = session.scalar(select(Group))
             engine.dispose()
 
+        assert group is not None
         self.assertEqual(group.total_prior_market_value_base, expected)
 
     def test_logs_critical_total_mismatch_and_still_saves_report(self):
@@ -476,7 +477,7 @@ class ReportParserPersistenceTest(unittest.TestCase):
             engine.dispose()
 
         self.assertIsNotNone(report)
-        self.assertIsNotNone(group)
+        assert group is not None
         self.assertEqual(group.total_current_book_value_base, 1)
         self.assertTrue(
             any(

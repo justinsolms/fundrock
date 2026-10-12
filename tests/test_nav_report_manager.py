@@ -8,12 +8,12 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fundrock.nav_report_classes import Base, NAVReport
+from fundrock.nav_report_classes import NAVReport
 from fundrock.nav_report_manager import NAVReportFileManager
 from fundrock.nav_report_parser import ReportParser
 
 
-def _fake_process(file_path, db_connection_string):
+def _fake_process(file_path: str, db_connection_string: str) -> None:
     name = Path(file_path).name
     engine = create_engine(db_connection_string)
     with Session(engine) as session:
@@ -33,7 +33,11 @@ def _fake_process(file_path, db_connection_string):
 
 
 class ContinuityTest(unittest.TestCase):
-    def _manager_with_dates(self, directory, dates_by_portfolio):
+    def _manager_with_dates(
+        self,
+        directory: str,
+        dates_by_portfolio: dict[str, list[datetime.date]],
+    ) -> NAVReportFileManager:
         manager = NAVReportFileManager(f"sqlite:///{Path(directory) / 'nav.db'}")
         manager.set_up()
         engine = create_engine(manager.db_connection_string)
@@ -79,7 +83,7 @@ class ContinuityTest(unittest.TestCase):
 
 
 class NAVReportFileManagerTest(unittest.TestCase):
-    def _manager(self, directory):
+    def _manager(self, directory: str) -> NAVReportFileManager:
         connection_string = f"sqlite:///{Path(directory) / 'sub' / 'nav.db'}"
         with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
             return NAVReportFileManager(connection_string)
@@ -122,7 +126,7 @@ class NAVReportFileManagerTest(unittest.TestCase):
                 manager = NAVReportFileManager(f"sqlite:///{Path(directory) / 'db' / 'nav.db'}")
             manager.set_up()
 
-            def process(file_path, db_connection_string):
+            def process(file_path: str, db_connection_string: str) -> None:
                 if Path(file_path) == bad:
                     raise ValueError("boom")
                 _fake_process(file_path, db_connection_string)

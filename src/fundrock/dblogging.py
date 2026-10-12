@@ -1,6 +1,7 @@
 """Logging handlers for the fundrock package."""
 
 import logging.handlers
+from typing import Any
 
 from fundrock.path_utils import get_log_path
 
@@ -15,5 +16,5 @@ class FileHandler(logging.handlers.TimedRotatingFileHandler):
 
     _log_file = "fundrock.log"
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(get_log_path(self._log_file), **kwargs)

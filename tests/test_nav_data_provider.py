@@ -1,6 +1,7 @@
 import datetime
 import tempfile
 import unittest
+from collections.abc import Iterable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -54,7 +55,12 @@ class NAVDataProviderTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 unknown.nav_summary_frames()
 
-    def _provider(self, directory, code="P1", dates=()):
+    def _provider(
+        self,
+        directory: str,
+        code: str = "P1",
+        dates: Iterable[datetime.date] = (),
+    ) -> NAVDataProvider:
         connection_string = f"sqlite:///{Path(directory) / 'nav.db'}"
         with patch("fundrock.nav_report_manager.get_data_path", return_value=directory):
             NAVReportFileManager(connection_string).set_up()

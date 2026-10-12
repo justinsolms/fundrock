@@ -342,7 +342,7 @@ class GroupParser(BaseBlockParser):
         return mismatches
 
     @classmethod
-    def _validate_report_total(
+    def validate_report_total(
         cls,
         groups: List[Dict[str, Any]],
         total_row: pd.Series,
@@ -513,7 +513,7 @@ class ReportParser:
         ]
         if total_net_assets_rows.empty:
             raise ValueError("Failed to locate 'TOTAL NET ASSETS' row.")
-        total_net_assets_mismatches = GroupParser._validate_report_total(
+        total_net_assets_mismatches = GroupParser.validate_report_total(
             parsed_groups_list,
             total_net_assets_rows.iloc[0],
         )
