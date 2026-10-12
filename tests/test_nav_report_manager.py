@@ -33,6 +33,13 @@ def _fake_process(file_path: str, db_connection_string: str) -> None:
 
 
 class ContinuityTest(unittest.TestCase):
+    def test_previous_business_day(self):
+        previous = NAVReportFileManager.previous_business_day
+        self.assertEqual(previous(datetime.date(2026, 10, 12)), datetime.date(2026, 10, 9))
+        self.assertEqual(previous(datetime.date(2026, 10, 13)), datetime.date(2026, 10, 12))
+        self.assertEqual(previous(datetime.date(2026, 1, 2)), datetime.date(2025, 12, 31))
+        self.assertEqual(previous(datetime.date(2026, 12, 28)), datetime.date(2026, 12, 24))
+
     def _manager_with_dates(
         self,
         directory: str,
@@ -70,6 +77,7 @@ class ContinuityTest(unittest.TestCase):
             self.assertEqual(missing, {"B": [D(2025, 6, 3), D(2025, 6, 5)]})
             status = manager.status(today)
             self.assertFalse(status["up_to_date"])
+            self.assertFalse(manager.is_complete_and_up_to_date(today))
             self.assertTrue(status["portfolios"]["A"]["up_to_date"])
             self.assertFalse(status["portfolios"]["B"]["up_to_date"])
 
@@ -80,6 +88,12 @@ class ContinuityTest(unittest.TestCase):
             manager = self._manager_with_dates(tmp, {"A": [D(2025, 4, 17), D(2025, 4, 22)]})
             self.assertEqual(manager.continuity_test(D(2025, 4, 23)), {})
             self.assertTrue(manager.status(D(2025, 4, 23))["up_to_date"])
+            self.assertTrue(manager.is_complete_and_up_to_date(D(2025, 4, 23)))
+
+    def test_empty_database_is_not_complete_and_up_to_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = self._manager_with_dates(tmp, {})
+            self.assertFalse(manager.is_complete_and_up_to_date(datetime.date(2025, 6, 6)))
 
 
 class NAVReportFileManagerTest(unittest.TestCase):

@@ -12,9 +12,12 @@ class ConfigureLoggingTest(unittest.TestCase):
         logger = logging.getLogger("fundrock")
         old = (logger.handlers[:], logger.level, logger.propagate)
         with tempfile.TemporaryDirectory() as directory:
+            def log_path(name: str) -> str:
+                return str(Path(directory) / name)
+
             with patch(
                 "fundrock.dblogging.get_log_path",
-                side_effect=lambda name: str(Path(directory) / name),
+                side_effect=log_path,
             ):
                 configure_logging()
                 try:

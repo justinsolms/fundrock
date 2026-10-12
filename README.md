@@ -63,6 +63,13 @@ all tables. If the database already exists it logs an `ERROR` and raises
 `tear_down()` deletes the database file so that it no longer exists (safe to call
 when it is already absent). Only file-based SQLite databases are supported.
 
+Use `manager.status()` to inspect report dates, per-portfolio recency, and any
+missing business days. `manager.is_complete_and_up_to_date()` returns `True`
+only when the database contains reports, every portfolio reaches the previous
+business day, and no business-day gaps are found. Continuity is checked from
+each portfolio's earliest stored report; this does not establish completeness
+before that date.
+
 ```python
 manager.tear_down()   # database no longer exists
 manager.set_up()      # fresh empty database

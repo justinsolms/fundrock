@@ -172,6 +172,11 @@ class NAVReportFileManager:
             "missing_business_days": missing,
         }
 
+    def is_complete_and_up_to_date(self, today: datetime.date | None = None) -> bool:
+        """Return whether every stored portfolio is current and has no gaps."""
+        status = self.status(today)
+        return status["up_to_date"] and not status["missing_business_days"]
+
     def _database_file(self) -> Path:
         """Return the SQLite database file path for the connection string."""
         url = make_url(self.db_connection_string)

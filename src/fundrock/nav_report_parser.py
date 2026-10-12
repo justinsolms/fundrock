@@ -46,7 +46,7 @@ class BaseBlockParser(BaseParser):
     """
     Base class for parsers that process a block of multiple rows.
     """
-    def parse_block(self, rows: List[pd.Series]) -> List[Dict[str, Any]]:
+    def parse_block(self, _rows: List[pd.Series]) -> List[Dict[str, Any]]:
         """To be implemented by subclasses to parse a list of dataframe rows."""
         raise NotImplementedError("Subclasses must implement parse_block()")
 
