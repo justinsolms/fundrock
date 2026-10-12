@@ -36,7 +36,11 @@ class CliTest(unittest.TestCase):
             "report_count": 3, "portfolio_count": 1,
             "first_date": datetime.date(2025, 6, 2), "last_date": datetime.date(2025, 6, 4),
             "expected_last_date": datetime.date(2025, 6, 5), "up_to_date": False,
-            "missing_business_days": [datetime.date(2025, 6, 3)],
+            "portfolios": {"A": {
+                "first_date": datetime.date(2025, 6, 2), "last_date": datetime.date(2025, 6, 4),
+                "up_to_date": False, "missing_business_days": [datetime.date(2025, 6, 3)],
+            }},
+            "missing_business_days": {"A": [datetime.date(2025, 6, 3)]},
         }
         for flag in ("-s", "--status"):
             result = self.runner.invoke(main, [flag])

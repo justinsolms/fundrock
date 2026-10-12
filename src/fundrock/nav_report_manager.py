@@ -26,7 +26,7 @@ class UpdateResult:
     updated: list[Path] = field(default_factory=list[Path])
     unchanged: list[Path] = field(default_factory=list[Path])
     failed: list[Path] = field(default_factory=list[Path])
-    missing_business_days: list[datetime.date] = field(default_factory=list[datetime.date])
+    missing_business_days: dict[str, list[datetime.date]] = field(default_factory=dict[str, list[datetime.date]])
 
 _REPORT_FILENAME = re.compile(
     r"NAV_[^_]+_(?P<report_date>\d{4}-\d{2}-\d{2})\.xlsx?",
@@ -72,65 +72,84 @@ class NAVReportFileManager:
             day -= datetime.timedelta(days=1)
         return day
 
-    def report_dates(self) -> list[datetime.date]:
-        """Return the distinct stored report dates in ascending order."""
+    def report_dates(self) -> dict[str, list[datetime.date]]:
+        """Return the sorted distinct stored report dates for each portfolio."""
         engine = create_engine(self.db_connection_string)
         try:
             with Session(engine) as session:
                 rows = session.execute(
-                    select(NAVReport.report_date).distinct().order_by(NAVReport.report_date)
-                ).scalars().all()
+                    select(NAVReport.portfolio_code, NAVReport.report_date)
+                    .distinct()
+                    .order_by(NAVReport.portfolio_code, NAVReport.report_date)
+                ).tuples().all()
         finally:
             engine.dispose()
-        return [row.date() if isinstance(row, datetime.datetime) else row for row in rows]
+        dates: dict[str, list[datetime.date]] = {}
+        for code, value in rows:
+            day = value.date() if isinstance(value, datetime.datetime) else value
+            dates.setdefault(code, []).append(day)
+        return dates
 
-    def continuity_test(self, today: datetime.date | None = None) -> list[datetime.date]:
-        """Return business days lacking any NAV report, warning for each gap.
+    def continuity_test(self, today: datetime.date | None = None) -> dict[str, list[datetime.date]]:
+        """Return, per portfolio, the business days lacking a NAV report.
 
-        The range runs from the earliest stored report date to the previous
-        business day before ``today``. Missing days at the end of the range
-        mean the database is not up to date. An empty database has no gaps.
+        Each portfolio is checked from its own earliest stored report date to
+        the previous business day before ``today``, warning for each gap.
+        Missing days at the end of a range mean that portfolio is not up to
+        date. Portfolios with no gaps are omitted; an empty database has none.
         """
         if not self.database_exists():
             raise FileNotFoundError(f"Database does not exist: {self._database_file()}")
-        dates = self.report_dates()
-        if not dates:
-            return []
-        stored = set(dates)
         end = self.previous_business_day(today)
-        public_holidays = self._holidays(dates[0].year, max(end.year, dates[-1].year))
-        missing: list[datetime.date] = []
-        day = dates[0]
-        while day <= end:
-            if day.weekday() < 5 and day not in public_holidays and day not in stored:
-                missing.append(day)
-            day += datetime.timedelta(days=1)
-        for day in missing:
-            logger.warning("NAV continuity: no report found for business day %s", day.isoformat())
+        missing: dict[str, list[datetime.date]] = {}
+        for code, dates in self.report_dates().items():
+            stored = set(dates)
+            public_holidays = self._holidays(dates[0].year, max(end.year, dates[-1].year))
+            gaps: list[datetime.date] = []
+            day = dates[0]
+            while day <= end:
+                if day.weekday() < 5 and day not in public_holidays and day not in stored:
+                    gaps.append(day)
+                day += datetime.timedelta(days=1)
+            for day in gaps:
+                logger.warning(
+                    "NAV continuity: portfolio %s has no report for business day %s",
+                    code,
+                    day.isoformat(),
+                )
+            if gaps:
+                missing[code] = gaps
         return missing
 
     def status(self, today: datetime.date | None = None) -> dict[str, object]:
-        """Return database metrics and the result of the continuity test."""
+        """Return database metrics and the per-portfolio continuity result."""
         missing = self.continuity_test(today)
         engine = create_engine(self.db_connection_string)
         try:
             with Session(engine) as session:
                 report_count = session.execute(select(func.count(NAVReport.id))).scalar() or 0
-                portfolios = session.execute(
-                    select(func.count(func.distinct(NAVReport.portfolio_code)))
-                ).scalar() or 0
         finally:
             engine.dispose()
         dates = self.report_dates()
-        last = dates[-1] if dates else None
         expected = self.previous_business_day(today)
+        portfolios = {
+            code: {
+                "first_date": days[0],
+                "last_date": days[-1],
+                "up_to_date": days[-1] == expected,
+                "missing_business_days": missing.get(code, []),
+            }
+            for code, days in dates.items()
+        }
+        all_days = [day for days in dates.values() for day in days]
         return {
             "report_count": report_count,
-            "portfolio_count": portfolios,
-            "first_date": dates[0] if dates else None,
-            "last_date": last,
+            "portfolio_count": len(portfolios),
+            "first_date": min(all_days) if all_days else None,
+            "last_date": max(all_days) if all_days else None,
             "expected_last_date": expected,
-            "up_to_date": last == expected,
+            "up_to_date": bool(portfolios) and all(p["up_to_date"] for p in portfolios.values()),
+            "portfolios": portfolios,
             "missing_business_days": missing,
         }
 

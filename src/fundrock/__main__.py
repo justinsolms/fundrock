@@ -37,7 +37,6 @@ def _show_status() -> None:
         info = manager.status()
     except FileNotFoundError as error:
         raise click.ClickException(str(error))
-    missing = info["missing_business_days"]
     click.echo(f"Database:            {manager.db_connection_string}")
     click.echo(f"Reports:             {info['report_count']}")
     click.echo(f"Portfolios:          {info['portfolio_count']}")
@@ -48,10 +47,16 @@ def _show_status() -> None:
         click.secho("Up to date:          yes", fg="green")
     else:
         click.secho("Up to date:          NO", fg="yellow")
-    if missing:
-        click.secho(f"Continuity:          {len(missing)} business day(s) without reports", fg="yellow")
+    problems = False
+    for code, item in info["portfolios"].items():
+        missing = item["missing_business_days"]
+        flag = "" if item["up_to_date"] else " (not up to date)"
+        click.echo(f"Portfolio {code}: {item['first_date']} to {item['last_date']}{flag}")
         for day in missing:
-            click.echo(f"  missing: {day.isoformat()}")
+            problems = True
+            click.secho(f"  missing: {day.isoformat()}", fg="yellow")
+    if problems:
+        click.secho("Continuity:          gaps found", fg="yellow")
     else:
         click.secho("Continuity:          OK", fg="green")
 
@@ -97,8 +102,13 @@ def update() -> None:
         f"Added {len(result.added)}, updated {len(result.updated)}, "
         f"unchanged {len(result.unchanged)}, failed {len(result.failed)}."
     )
-    for day in result.missing_business_days:
-        click.secho(f"  warning: no NAV report for business day {day.isoformat()}", fg="yellow", err=True)
+    for code, days in result.missing_business_days.items():
+        for day in days:
+            click.secho(
+                f"  warning: portfolio {code} has no NAV report for business day {day.isoformat()}",
+                fg="yellow",
+                err=True,
+            )
     if result.failed:
         for path in result.failed:
             click.echo(f"  failed: {path}", err=True)
