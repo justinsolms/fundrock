@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 class UpdateResult:
     """Outcome of NAVReportFileManager.update()."""
 
-    added: list[Path] = field(default_factory=list)
-    updated: list[Path] = field(default_factory=list)
-    unchanged: list[Path] = field(default_factory=list)
-    failed: list[Path] = field(default_factory=list)
+    added: list[Path] = field(default_factory=list[Path])
+    updated: list[Path] = field(default_factory=list[Path])
+    unchanged: list[Path] = field(default_factory=list[Path])
+    failed: list[Path] = field(default_factory=list[Path])
 
 _REPORT_FILENAME = re.compile(
     r"NAV_[^_]+_(?P<report_date>\d{4}-\d{2}-\d{2})\.xlsx?",
@@ -150,14 +150,13 @@ class NAVReportFileManager:
             file_time_stamp = ReportParser.file_time_stamp(file_path)
             if file_path.name not in stored:
                 bucket = result.added
-            elif (
-                file_time_stamp is not None
-                and (stored[file_path.name] is None or file_time_stamp > stored[file_path.name])
-            ):
-                bucket = result.updated
             else:
-                result.unchanged.append(file_path)
-                continue
+                stored_time = stored[file_path.name]
+                if file_time_stamp is not None and (stored_time is None or file_time_stamp > stored_time):
+                    bucket = result.updated
+                else:
+                    result.unchanged.append(file_path)
+                    continue
             try:
                 ReportParser.process_excel_file(
                     file_path=str(file_path),
