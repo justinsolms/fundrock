@@ -88,6 +88,26 @@ class NAVDataProviderTest(unittest.TestCase):
             self.assertTrue(provider.is_complete_and_up_to_date(datetime.date(2026, 10, 12)))
             self.assertFalse(provider.is_complete_and_up_to_date(datetime.date(2026, 10, 13)))
 
+    def test_is_complete_and_up_to_date_for_past_reference_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            days = [datetime.date(2026, 10, 8), datetime.date(2026, 10, 9)]
+            provider = self._provider(directory, dates=days)
+            self.assertTrue(provider.is_complete_and_up_to_date(datetime.date(2026, 10, 9)))
+            self.assertTrue(provider.is_complete_and_up_to_date(datetime.date(2026, 10, 8)))
+
+    def test_is_complete_and_up_to_date_on_holiday_and_weekend(self):
+        # 2026-09-24 (Heritage Day) is a Thursday public holiday.
+        days = [datetime.date(2026, 9, 22), datetime.date(2026, 9, 23)]
+        with tempfile.TemporaryDirectory() as directory:
+            provider = self._provider(directory, dates=days)
+            for today in (
+                datetime.date(2026, 9, 24),  # the holiday itself
+                datetime.date(2026, 9, 25),  # day after the holiday
+            ):
+                self.assertTrue(provider.is_complete_and_up_to_date(today), today)
+            # Saturday: the previous business day is Friday 09-25, which is missing.
+            self.assertFalse(provider.is_complete_and_up_to_date(datetime.date(2026, 9, 26)))
+
     def test_empty_and_missing_database(self):
         with tempfile.TemporaryDirectory() as directory:
             provider = self._provider(directory, code="nope", dates=[datetime.date(2026, 10, 9)])

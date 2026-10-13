@@ -155,7 +155,7 @@ class NAVReportFileManager:
             code: {
                 "first_date": days[0],
                 "last_date": days[-1],
-                "up_to_date": days[-1] == expected,
+                "up_to_date": days[-1] >= expected,
                 "missing_business_days": missing.get(code, []),
             }
             for code, days in dates.items()
